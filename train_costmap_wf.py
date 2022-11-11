@@ -1,9 +1,10 @@
-# only close crops
-# close crops + distant crops
+# (done) only close crops
+# (done) close crops + distant crops
 # (done) + vel input
 # + patch distance
 # separate rgb and height encoders
 # filter the crops
+# filter out the bad trajectories in terms of mapping
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -58,7 +59,7 @@ class TrainCostmap(TorchFlow.TorchFlow):
 
         stride = 2
         skip = 0
-        cropnum = 2
+        cropnum = 8
         framelistfile = 'data/rough_rider.txt'
         testframelistfile = 'data/rough_rider_test.txt'
         datarootdir = '/cairo/arl_bag_files/SARA/2022_05_31_trajs'
@@ -127,6 +128,18 @@ class TrainCostmap(TorchFlow.TorchFlow):
         self.write_accumulated_values()
         self.draw_accumulated_values()
 
+    def filter_valid_num(self, input_tensor, vels_tensor, target_tensor, thresh=0.5):
+        '''
+        input_tensor: B x 8 x H x W
+        vels_tensor: B x 2
+        target_tensor: B
+        '''
+        threshnum = thresh * input_tensor.shape[-1] * input_tensor.shape[-2] # 224 * 224 / 2 
+        heightmask = input_tensor[:,-1,:,:] # B x H x W
+        validnum = torch.sum(heightmask, dim=(2,1))
+        mask = validnum > threshnum
+        return input_tensor[mask,...], vels_tensor[mask,...], target_tensor[mask]
+
     def forward(self, sample): 
         # import ipdb;ipdb.set_trace()
 
@@ -138,6 +151,12 @@ class TrainCostmap(TorchFlow.TorchFlow):
         input_tensor = patches.view((-1,) + patches.shape[2:] ).cuda()
         vels_tensor = vels.view(-1,2).cuda()
         target_tensor = targetcost.view(-1).cuda()
+
+        # # filter the patch based on valid map pixel number
+        # input_tensor, vels_tensor, target_tensor = self.filter_valid_num(input_tensor, vels_tensor, target_tensor)
+        # if len(input_tensor) == 0:
+        #     return None, None
+
         output = self.costnet(input_tensor,vels_tensor)
 
         loss = self.criterion(output, target_tensor)

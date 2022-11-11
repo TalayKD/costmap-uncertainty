@@ -234,7 +234,7 @@ class TartanCostDataset(Dataset):
             masknp = (1-mask).astype(np.float32).reshape(mask.shape + (1,))
             if normalize:
                 heightmap = heightmap * 10
-                heightmap[:,:,3] = heightmap[:,:,3] * 10
+                heightmap[:,:,3] = heightmap[:,:,3] * 10 # std channel
                 heightmap = np.clip(heightmap, -20, 20)
             reslist.append(np.concatenate((heightmap, masknp), axis=-1))
         return reslist

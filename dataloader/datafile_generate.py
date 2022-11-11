@@ -73,5 +73,14 @@ def rough_rider():
         write_datafile(trajdir, trajindlist, f)
     f.close()
 
+def bag20210910_23():
+    dataset_dir = '/cairo/arl_bag_files/SARA/20210910_23'
+    datafile = '/home/amigo/workspace/pytorch/ss_costmap/data/bag20210910_23.txt'
+
+    f = open(datafile, 'w')
+    trajindlist = process_traj(dataset_dir)
+    write_datafile('20210910_23', trajindlist, f)
+    f.close()
+
 if __name__=="__main__":
-    rough_rider()
+    bag20210910_23()
