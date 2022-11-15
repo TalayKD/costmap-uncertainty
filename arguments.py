@@ -57,6 +57,9 @@ def get_args():
     parser.add_argument('--test', action='store_true', default=False,
                         help='test (default: False)')
 
+    parser.add_argument('--test-traj', action='store_true', default=False,
+                        help='test trajectory (default: False)')
+
     parser.add_argument('--test-num', type=int, default=10,
                         help='test (default: 10)')
 

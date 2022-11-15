@@ -3,8 +3,8 @@
 # (done) + vel input
 # + patch distance
 # separate rgb and height encoders
-# filter the crops
-# filter out the bad trajectories in terms of mapping
+# (done) filter the crops
+# (done) filter out the bad trajectories in terms of mapping
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -65,7 +65,7 @@ class TrainCostmap(TorchFlow.TorchFlow):
         datarootdir = '/cairo/arl_bag_files/SARA/2022_05_31_trajs'
         datatypes = "heightmap,rgbmap,odom,patches,cost,vels" # "heightmap"
         modalitylens = [1,1,cropnum,cropnum,cropnum,cropnum] #[1]
-        if not args.test:
+        if not (args.test or args.test_traj):
             trainDataset = TartanCostDataset(framelistfile, \
                                 map_metadata=map_metadata,
                                 crop_params=crop_params,
@@ -88,7 +88,20 @@ class TrainCostmap(TorchFlow.TorchFlow):
         #         sample = self.trainDataiter.next()
         #     print('Sample load time: {}'.format(time.time() - starttime))
 
-        testDataset = TartanCostDataset(testframelistfile, \
+        if args.test_traj: # evaluate on the whole map
+            testDataset = TartanCostDataset(testframelistfile, \
+                                map_metadata=map_metadata,
+                                crop_params=crop_params,
+                                dataroot= datarootdir, \
+                                datatypes = datatypes, \
+                                modalitylens = modalitylens, \
+                                transform=None, \
+                                imu_freq = 10, \
+                                frame_skip = skip, frame_stride=stride, 
+                                new_odom_flag=False, coverage=True)
+            test_shuffle = False
+        else:
+            testDataset = TartanCostDataset(testframelistfile, \
                                 map_metadata=map_metadata,
                                 crop_params=crop_params,
                                 dataroot= datarootdir, \
@@ -97,7 +110,9 @@ class TrainCostmap(TorchFlow.TorchFlow):
                                 transform=None, \
                                 imu_freq = 10, \
                                 frame_skip = skip, frame_stride=stride, new_odom_flag=False)
-        self.testDataloader = DataLoader(testDataset, batch_size=args.test_batch_size, shuffle=True, num_workers=args.worker_num)
+            test_shuffle = True
+
+        self.testDataloader = DataLoader(testDataset, batch_size=args.test_batch_size, shuffle=test_shuffle, num_workers=args.worker_num)
         self.testDataiter = iter(self.testDataloader)
         
         self.criterion = nn.L1Loss()
@@ -220,6 +235,7 @@ class TrainCostmap(TorchFlow.TorchFlow):
     def test(self):
         super(TrainCostmap, self).test()
         self.test_count += 1
+        import ipdb;ipdb.set_trace()
 
         try:
             sample = self.testDataiter.next()
@@ -239,8 +255,7 @@ class TrainCostmap(TorchFlow.TorchFlow):
             self.logger.info("  TEST %s #%d - loss: %.4f "  % (self.args.exp_prefix[:-1], 
                 self.test_count, lossnum))
         sample = None
-
-        return lossnum 
+        return lossnum, output
 
 
     def finalize(self):
@@ -265,7 +280,7 @@ if __name__ == '__main__':
         if args.test:
             errorlist = []
             while True:
-                loss = trainCostmap.test()
+                loss, output = trainCostmap.test()
                 errorlist.append(loss)
 
                 if trainCostmap.test_batch >= args.test_num:
