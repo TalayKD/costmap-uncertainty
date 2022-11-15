@@ -42,10 +42,10 @@ def get_args():
     parser.add_argument('--rand-blur', type=float, default=0.0,
                         help='randomly load blur image for training (default: 0.0)')
 
-    parser.add_argument('--data-file', default='train.txt,kitti.txt',
+    parser.add_argument('--data-file', default='',
                         help='txt file specify the training data (default: "")')
 
-    parser.add_argument('--val-file', default='val.txt',
+    parser.add_argument('--val-file', default='',
                         help='txt file specify the validation data (default: "")')
 
     parser.add_argument('--load-model', action='store_true', default=False,
@@ -83,6 +83,18 @@ def get_args():
 
     parser.add_argument('--platform', default='local',
                         help='deal with different data root directory in dataloader, could be one of local, cluster, azure (default: "local")')
+
+    parser.add_argument('--stride', type=int, default=2,
+                        help='The stride of the dataloader.')
+
+    parser.add_argument('--skip', type=int, default=0,
+                        help='The skip of the dataloader.')
+
+    parser.add_argument('--crop-num', type=int, default=0,
+                        help='The number of patches of the dataloader.')
+
+    parser.add_argument('--data-root', default='/project/learningphysics',
+                        help='root folder of the data')
 
     args = parser.parse_args()
 
