@@ -57,12 +57,12 @@ class TrainCostmap(TorchFlow.TorchFlow):
         }
 
 
-        stride = 2
-        skip = 0
-        cropnum = 8
-        framelistfile = 'data/rough_rider.txt'
-        testframelistfile = 'data/rough_rider_test.txt'
-        datarootdir = '/cairo/arl_bag_files/SARA/2022_05_31_trajs'
+        stride = args.stride
+        skip = args.skip
+        cropnum = args.crop_num
+        framelistfile = 'data/' + args.data_file
+        testframelistfile = 'data/' + args.val_file
+        datarootdir = args.data_root
         datatypes = "heightmap,rgbmap,odom,patches,cost,vels" # "heightmap"
         modalitylens = [1,1,cropnum,cropnum,cropnum,cropnum] #[1]
         if not args.test:
