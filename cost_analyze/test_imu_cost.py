@@ -10,11 +10,11 @@ import matplotlib.pyplot as plt
 from shutil import rmtree
 np.set_printoptions(threshold=1000000, precision=2, suppress=True)
 
-def load_costs(costfiledir, costfilename='float.npy', costfolder = 'cost'):
-    costfile = join(costfiledir, costfolder, costfilename)
+def load_costs(costfolderdir, costfilename='float.npy', costfolder = 'cost'):
+    costfile = join(costfolderdir, costfolder, costfilename)
     costs = np.load(costfile)
     # remove the last 20 frames because of the intervension actions
-    costs = costs[:-20] 
+    # costs = costs[:-20] 
     return costs
 
 def copy_data(targetfolder, rootdir, select_traj, select_costsind, costlist):
@@ -229,6 +229,7 @@ def split_train_val(select_traj, select_costsind, costlist, trainnum):
 
     return train_traj, test_traj, train_costsind, test_costsind, train_costlist, test_costlist
 
+
 def main_tartandrive():
     HighCostSampleNum = 12000
     LowCostSampleNum = 6000
@@ -266,33 +267,7 @@ def main_tartandrive():
     copy_data(targetfolder+'lowcost_5k', rootdir, train_traj, train_costsind, train_costlist)
     copy_data(targetfolder+'lowcost_val_1k', rootdir, test_traj, test_costsind, test_costlist)
 
-def cost_statistics():
-    rootdir = '/project/learningphysics/tartandrive_trajs'
-    trajdirs = listdir(rootdir)
-
-    trajdirs.sort()
-    trajnum = len(trajdirs)
-    costlist = []
-    for traj in trajdirs:
-        costs = load_costs(rootdir + '/' + traj)
-        costlist.extend(costs.tolist())
-    print("Total number of frames {}".format(len(costlist)))
-    plt.hist(costlist, bins=100)
-
-# maxinds = np.concatenate((sort1[-20:],sort2[-10:]),axis=0)
-# maxinds = sort1[-50:] # look at the 50 trajectoris w/ the highest mean cost
-
-# costslist = []
-# for ind in maxinds:
-#     costfile = rootdir + '/' + trajdirs[ind] + '/cost/cost.npy'
-#     costs = load_costs(costfile)
-#     print(trajdirs[ind], len(costs))
-#     costslist.extend(costs.tolist())
-# print("Total number of frames {}".format(len(costslist)))
-# # plt.hist(costslist, bins=100)
-# # plt.savefig('costs_top_mean_50.png')
-
-if __name__ == '__main__':
+def main_wanda():
 
     HighCostSampleNum = 600
     LowCostSampleNum = 300
@@ -330,6 +305,45 @@ if __name__ == '__main__':
     copy_data(targetfolder+'lowcost_200', rootdir, train_traj, train_costsind, train_costlist)
     copy_data(targetfolder+'lowcost_val_100', rootdir, test_traj, test_costsind, test_costlist)
 
-    import ipdb;ipdb.set_trace()
 
+def cost_statistics(rootdir, savefile):
+    trajdirs = listdir(rootdir)
+    trajdirs = [tt for tt in trajdirs if isdir(join(rootdir, tt))]
+    trajdirs.sort()
+    trajnum = len(trajdirs)
+    costlist = []
+    for traj in trajdirs:
+        costs = load_costs(rootdir + '/' + traj, costfilename='cost.npy', costfolder='cost2')
+        costlist.extend(costs.tolist())
+    print("Total number of frames {}".format(len(costlist)))
+    print("Cost=0.0 {}, {}".format(np.sum(np.array(costlist)<1e-2), np.sum(np.array(costlist)<1e-3)/len(costlist)))
+    print("Cost<0.1 {}, {}".format(np.sum(np.array(costlist)<0.1), np.sum(np.array(costlist)<0.1)/len(costlist)))
+    print("Cost<0.3 {}, {}".format(np.sum(np.array(costlist)<0.3), np.sum(np.array(costlist)<0.3)/len(costlist)))
+    print("Cost<0.5 {}, {}".format(np.sum(np.array(costlist)<0.5), np.sum(np.array(costlist)<0.5)/len(costlist)))
+    print("Cost<0.99 {}, {}".format(np.sum(np.array(costlist)<0.99), np.sum(np.array(costlist)<0.99)/len(costlist)))
 
+    plt.hist(costlist, bins=100, log=True)
+    plt.savefig(savefile)
+
+# maxinds = np.concatenate((sort1[-20:],sort2[-10:]),axis=0)
+# maxinds = sort1[-50:] # look at the 50 trajectoris w/ the highest mean cost
+
+# costslist = []
+# for ind in maxinds:
+#     costfile = rootdir + '/' + trajdirs[ind] + '/cost/cost.npy'
+#     costs = load_costs(costfile)
+#     print(trajdirs[ind], len(costs))
+#     costslist.extend(costs.tolist())
+# print("Total number of frames {}".format(len(costslist)))
+# # plt.hist(costslist, bins=100)
+# # plt.savefig('costs_top_mean_50.png')
+
+if __name__ == '__main__':
+
+    # rootdir = '/project/learningphysics/tartandrive_trajs'
+    # savefile = 'costs2_tartandrive.png'
+    # rootdir = '/project/learningphysics/2022_traj'
+    # savefile = 'costs2_tartandrive2.png'
+    # cost_statistics(rootdir, savefile)
+    # import ipdb;ipdb.set_trace()
+    # test_main()

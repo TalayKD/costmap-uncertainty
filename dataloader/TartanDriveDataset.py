@@ -238,8 +238,10 @@ class TartanCostDataset(Dataset):
                 heightmap = heightmap * 10
                 heightmap[:,:,3] = heightmap[:,:,3] * 10 # std channel
                 heightmap = np.clip(heightmap, -20, 20)
-            reslist.append(np.concatenate((heightmap, masknp), axis=-1))
-        return reslist
+            heightmap_mask = np.concatenate((heightmap, masknp), axis=-1)
+            heightmap_mask = heightmap_mask.transpose(2,0,1) # C x H x W
+            reslist.append(torch.from_numpy(heightmap_mask)) # convert to tensor
+        return torch.stack(reslist, dim=0)
 
     def normalize_rgbmap(self, rgblist):
         reslist = []
@@ -248,8 +250,9 @@ class TartanCostDataset(Dataset):
         for rgbmap in rgblist:
             rgbmap = rgbmap.astype(np.float32)/255.
             rgbmap = (rgbmap - mean)/std
-            reslist.append(rgbmap)
-        return reslist
+            rgbmap = rgbmap.transpose(2,0,1)
+            reslist.append(torch.from_numpy(rgbmap))
+        return torch.stack(reslist, dim=0)
 
     def normalize_vel(self, vel):
         vel[...,0] = vel[...,0] / 5.
@@ -368,8 +371,10 @@ class TartanCostDataset(Dataset):
     def get_crops(self, heightmaps, rgbmaps, odom, map_metadata, crop_params, coverage=False):
         '''Returns (patches, costs)
         '''
-        rgb_map_tensor = torch.from_numpy(rgbmaps[0]).permute(2,0,1) # (C,H,W)
-        height_map_tensor = torch.from_numpy(heightmaps[0]).permute(2,0,1) # (C,H,W)
+        # rgb_map_tensor = torch.from_numpy(rgbmaps[0]).permute(2,0,1) # (C,H,W)
+        # height_map_tensor = torch.from_numpy(heightmaps[0]).permute(2,0,1) # (C,H,W)
+        rgb_map_tensor = rgbmaps[0] # (C,H,W)
+        height_map_tensor = heightmaps[0] # (C,H,W)
 
         maps = {
             'rgb_map':rgb_map_tensor,

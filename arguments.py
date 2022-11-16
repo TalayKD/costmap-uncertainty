@@ -96,6 +96,9 @@ def get_args():
     parser.add_argument('--data-root', default='/project/learningphysics',
                         help='root folder of the data')
 
+    parser.add_argument('--test-vel', type=float, default=0.0,
+                        help='test velocity (default: 0.0)')
+
     args = parser.parse_args()
 
     return args

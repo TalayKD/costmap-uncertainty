@@ -18,11 +18,24 @@ from dataloader.TartanDriveDataset import TartanCostDataset
 from network.CostNet import CostResNet
 
 import time
+import cv2
+from math import sqrt
 
 # from scipy.io import savemat
 np.set_printoptions(precision=4, threshold=10000)
 
 import time # for testing
+
+def denormalize_vis_rgbmap(rgbmap):
+    # rgbmap: c x H x W
+    # denormalize the rgbmap
+    mean = np.array([0.485, 0.456, 0.406], dtype=np.float32).reshape(1,1,3)
+    std = np.array([0.229, 0.224, 0.225], dtype=np.float32).reshape(1,1,3)
+    rgbmap_np = rgbmap.transpose(1,2,0)
+    rgbmap_np = rgbmap_np * std + mean
+    rgbmap_np = np.clip(rgbmap_np * 255, 0 ,255)
+    rgbmap_np = rgbmap_np.astype(np.uint8)
+    return rgbmap_np
 
 class TrainCostmap(TorchFlow.TorchFlow):
     def __init__(self, workingDir, args, prefix = "", suffix = "", plotterType = 'Visdom'):
@@ -235,7 +248,6 @@ class TrainCostmap(TorchFlow.TorchFlow):
     def test(self):
         super(TrainCostmap, self).test()
         self.test_count += 1
-        import ipdb;ipdb.set_trace()
 
         try:
             sample = self.testDataiter.next()
@@ -257,6 +269,37 @@ class TrainCostmap(TorchFlow.TorchFlow):
         sample = None
         return lossnum, output
 
+    def test_traj(self,maxpatch_size = 300):
+        super(TrainCostmap, self).test()
+        self.test_count += 1
+        # import ipdb;ipdb.set_trace()
+        self.costnet.eval()
+
+        try:
+            sample = self.testDataiter.next()
+        except StopIteration:
+            self.testDataiter = iter(self.testDataloader)
+            sample = self.testDataiter.next()
+
+        patches = sample['patches']
+        batchsize, patchsize, _, _, _ = patches.shape
+        subsample = {}
+        outputlist = []
+        for k in range(0, patchsize, maxpatch_size):
+            endind = min(maxpatch_size+k, patchsize)
+            subsample['patches'] = patches[:,k:endind]
+            subpatchsize = endind - k
+            subsample['cost'] = torch.zeros((batchsize, subpatchsize), dtype=torch.float32) # N x M 
+            subsample['vels'] = torch.zeros((batchsize, subpatchsize, 2), dtype=torch.float32) # N x M x 2
+            subsample['vels'][:,:,0] = args.test_vel / 5.0 
+
+            with torch.no_grad():
+                _, output = self.forward(subsample)
+            outputlist.extend(output.cpu().numpy())
+        vismap = sample['rgbmap'][0][0].numpy()
+        # vid.write(disp_color)
+        sample = None
+        return np.array(outputlist), vismap
 
     def finalize(self):
         super(TrainCostmap, self).finalize()
@@ -271,13 +314,41 @@ class TrainCostmap(TorchFlow.TorchFlow):
 
 if __name__ == '__main__':
     args = get_args()
-
     try:
         # Instantiate an object for MyWF.
         trainCostmap = TrainCostmap(args.working_dir, args, prefix = args.exp_prefix, plotterType = 'Int')
         trainCostmap.initialize()
 
-        if args.test:
+        if args.test_traj:
+            outvidfile = 'test_20220531_lowvel_0.mp4'
+            fourcc = cv2.VideoWriter_fourcc(*'MP4V')
+            fout=cv2.VideoWriter(outvidfile, fourcc, 10, (1800, 600))
+            while True:
+                output, vismap = trainCostmap.test_traj()
+                # import ipdb;ipdb.set_trace()
+                # save the file for debug
+                patchsize = len(output)                
+                mapsize = int(sqrt(patchsize))
+                outputnp = output.reshape(mapsize,mapsize)
+                disp = (outputnp*255).astype(np.uint8)
+                disp = cv2.resize(disp, (400, 400), interpolation=cv2.INTER_NEAREST)
+                disp_pad = np.zeros((600,600),dtype=np.uint8)
+                disp_pad[100:500,100:500] = disp
+                disp_color = cv2.applyColorMap(disp_pad, cv2.COLORMAP_JET)
+                # disp_color = cv2.flip(disp_color, -1)
+                mapvis = denormalize_vis_rgbmap(vismap)
+                disp_overlay = (mapvis //2 + disp_color//2)
+                visimg = np.concatenate((disp_color, mapvis, disp_overlay), axis=1)
+                cv2.imshow('img', visimg)
+                cv2.waitKey(10)
+                fout.write(visimg)
+
+                if trainCostmap.test_count >= args.test_num:
+                    break
+            print("Test reaches the maximum test number (%d)." % (args.test_num))
+            fout.release()
+
+        elif args.test:
             errorlist = []
             while True:
                 loss, output = trainCostmap.test()
