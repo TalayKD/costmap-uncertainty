@@ -76,7 +76,7 @@ class TartanCostDataset(Dataset):
         if 'imu' in self.datatypelist:
             self.imulist = self.loadDataFromFile(self.trajlist, 'imu/imu.npy')
         if 'cost' in self.datatypelist:
-            self.costlist = self.loadDataFromFile(self.trajlist, 'cost/cost.npy')
+            self.costlist = self.loadDataFromFile(self.trajlist, 'cost2/cost.npy')
             # self.cost2list = self.loadDataFromFile(self.trajlist, 'cost2/cost.npy') # for debug
         
 

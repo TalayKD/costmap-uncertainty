@@ -87,7 +87,7 @@ def get_args():
     parser.add_argument('--skip', type=int, default=0,
                         help='The skip of the dataloader.')
 
-    parser.add_argument('--crop-num', type=int, default=0,
+    parser.add_argument('--crop-num', type=int, default=1,
                         help='The number of patches of the dataloader.')
 
     parser.add_argument('--data-root', default='/project/learningphysics',
