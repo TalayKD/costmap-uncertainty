@@ -56,7 +56,7 @@ class TartanCostDataset(Dataset):
         self.datatypelist = datatypes.split(',')
         self.modalitylenlist = modalitylens
         assert len(self.datatypelist)==len(modalitylens), "Error: datatype len {}, modalitylens len {}".format(len(self.datatypelist),len(modalitylens))
-        self.trajlist, self.trajlenlist, self.framelist, self.imulenlist = self.parse_inputfile(framelistfile, frame_skip)
+        self.trajlist, self.trajlenlist, self.framelist, self.imulenlist, self.startframelist = self.parse_inputfile(framelistfile, frame_skip)
         self.sample_seq_len = self.calc_seq_len(self.datatypelist, modalitylens, imu_freq)
         self.seqnumlist = self.parse_length(self.trajlenlist, frame_skip, frame_stride, self.sample_seq_len)
 
@@ -69,14 +69,14 @@ class TartanCostDataset(Dataset):
         print('Loaded {} sequences from {}...'.format(self.N, framelistfile))
 
         if 'cmd' in self.datatypelist:
-            self.cmdlist = self.loadDataFromFile(self.trajlist, 'cmd/twist.npy')
+            self.cmdlist = self.loadDataFromFile(self.trajlist, self.startframelist, self.trajlenlist, 'cmd/twist.npy')
         if 'odom' in self.datatypelist:
-            self.odomlist = self.loadDataFromFile(self.trajlist, 'odom/odometry.npy')
-            self.odomlist_tartanvo = self.loadDataFromFile(self.trajlist, 'tartanvo_odom/poses.npy')
+            self.odomlist = self.loadDataFromFile(self.trajlist, self.startframelist, self.trajlenlist, 'odom/odometry.npy')
+            self.odomlist_tartanvo = self.loadDataFromFile(self.trajlist, self.startframelist, self.trajlenlist, 'tartanvo_odom/poses.npy')
         if 'imu' in self.datatypelist:
-            self.imulist = self.loadDataFromFile(self.trajlist, 'imu/imu.npy')
+            self.imulist = self.loadDataFromFile(self.trajlist, self.startframelist, self.trajlenlist, 'imu/imu.npy')
         if 'cost' in self.datatypelist:
-            self.costlist = self.loadDataFromFile(self.trajlist, 'cost/cost.npy')
+            self.costlist = self.loadDataFromFile(self.trajlist, self.startframelist, self.trajlenlist, 'cost2/cost.npy')
             # self.cost2list = self.loadDataFromFile(self.trajlist, 'cost2/cost.npy') # for debug
         
 
@@ -91,7 +91,7 @@ class TartanCostDataset(Dataset):
         '''
         with open(inputfile,'r') as f:
             lines = f.readlines()
-        trajlist, trajlenlist, framelist, imulenlist = [], [], [], []
+        trajlist, trajlenlist, framelist, imulenlist, startframelist = [], [], [], [], []
         ind = 0
         while ind<len(lines):
             line = lines[ind].strip()
@@ -108,9 +108,11 @@ class TartanCostDataset(Dataset):
                 line = lines[ind].strip()
                 framelist.append(line)
                 ind += 1
+                if k==0:
+                    startframelist.append(int(line))
 
         print('Read {} trajectories, including {} frames'.format(len(trajlist), len(framelist)))
-        return trajlist, trajlenlist, framelist, imulenlist
+        return trajlist, trajlenlist, framelist, imulenlist, startframelist
 
     def calc_seq_len(self, datatypelist, seqlens, imu_freq):
         '''
@@ -209,8 +211,8 @@ class TartanCostDataset(Dataset):
         ori_T = Rotation.from_quat(odom[:,3:7]).as_matrix()
         ori_T_inv = np.linalg.inv(ori_T)
 
-        vel_trans = np.matmul(ori_T_inv, odom[:,7:10,np.newaxis]).squeeze() # N x 3
-        vel_rot = np.matmul(ori_T_inv, odom[:,10:13,np.newaxis]).squeeze() # N x 3
+        vel_trans = np.matmul(ori_T_inv, odom[:,7:10,np.newaxis]).squeeze(axis=-1) # N x 3
+        vel_rot = np.matmul(ori_T_inv, odom[:,10:13,np.newaxis]).squeeze(axis=-1) # N x 3
 
         # if self.new_odom_flag:
         #     vel = vel_trans[:,0:1]
@@ -295,6 +297,7 @@ class TartanCostDataset(Dataset):
             else:
                 # print('Unknow Datatype {}'.format(datatype))
                 pass
+
         # Load patches only after everything else is loaded
         if "patches" in self.datatypelist:
             datalen = self.modalitylenlist[self.datatypelist.index("patches")]
@@ -350,14 +353,16 @@ class TartanCostDataset(Dataset):
     # def load_cost2(self, frameindlist, datalen): # for debug
     #     return self.cost2list[frameindlist[:datalen]]
 
-    def loadDataFromFile(self, trajlist, data_folder_and_filename):
+    def loadDataFromFile(self, trajlist, startframelist, trajlenlist, data_folder_and_filename):
         print('Loading data from {}...'.format(data_folder_and_filename))
         datalist = []
         for k, trajdir in enumerate(trajlist): 
+            start_ind = int(startframelist[k])
+            end_ind = start_ind + trajlenlist[k]
             trajpath = self.dataroot + '/' + trajdir
             cmds = np.load(trajpath + '/' + data_folder_and_filename).astype(np.float32) # framenum
-            datalist.extend(cmds)
-            if k%100==0:
+            datalist.extend(cmds[start_ind:end_ind,...])
+            if k%1000==0:
                 print('    Processed {} trajectories...'.format(k))
         datalist = np.array(datalist)
         print('load size', datalist.shape)

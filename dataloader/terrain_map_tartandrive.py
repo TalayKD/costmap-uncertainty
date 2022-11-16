@@ -11,14 +11,13 @@ def get_local_path(odom):
     quat = odom[:,3:7]
     yaw = quat_to_yaw(quat)
 
-    rel_pos = pos - pos[0,:]
-    rel_yaw = yaw - yaw[0]
+    rel_pos = pos[:,:] - pos[0,:]
+    rel_yaw = yaw[:] - yaw[0]
 
     theta = -yaw[0]
     rot = np.array([[np.cos(theta), -np.sin(theta)], [np.sin(theta), np.cos(theta)]])
     # rel_pos = np.matmul(rot, rel_pos.transpose((1,0))).transpose((1,0))
-    rel_pos = np.matmul(rot, rel_pos[...,np.newaxis]).squeeze()
-
+    rel_pos = np.matmul(rot, rel_pos[...,np.newaxis]).squeeze(axis=-1)
     rel_path = np.concatenate((rel_pos, rel_yaw[...,np.newaxis]), axis=1)
     return rel_path
     

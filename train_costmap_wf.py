@@ -81,11 +81,11 @@ class TrainCostmap(TorchFlow.TorchFlow):
         # while True:
         #     starttime = time.time()
         #     try:
-        #         sample = self.trainDataiter.next()
+        #         sample = next(self.trainDataiter)
         #     except StopIteration:
         #         print('New epoch..')
         #         self.trainDataiter = iter(self.trainDataloader)
-        #         sample = self.trainDataiter.next()
+        #         sample = next(self.trainDataiter)
         #     print('Sample load time: {}'.format(time.time() - starttime))
 
         testDataset = TartanCostDataset(testframelistfile, \
@@ -173,11 +173,11 @@ class TrainCostmap(TorchFlow.TorchFlow):
         starttime = time.time()
 
         try:
-            sample = self.trainDataiter.next()
+            sample = next(self.trainDataiter)
         except StopIteration:
             print('New epoch..')
             self.trainDataiter = iter(self.trainDataloader)
-            sample = self.trainDataiter.next()
+            sample = next(self.trainDataiter)
 
         loadtime = time.time()
 
@@ -222,10 +222,10 @@ class TrainCostmap(TorchFlow.TorchFlow):
         self.test_count += 1
 
         try:
-            sample = self.testDataiter.next()
+            sample = next(self.testDataiter)
         except StopIteration:
             self.testDataiter = iter(self.testDataloader)
-            sample = self.testDataiter.next()
+            sample = next(self.testDataiter)
 
         self.costnet.eval()
         with torch.no_grad():
