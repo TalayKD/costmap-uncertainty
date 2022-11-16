@@ -40,7 +40,8 @@ class TartanCostDataset(Dataset):
         imu_freq = 10, \
         frame_skip = 0, \
         frame_stride = 1, \
-        new_odom_flag = False):
+        new_odom_flag = False, \
+        coverage = False):
 
         super(TartanCostDataset, self).__init__()
         self.framelistfile = framelistfile
@@ -52,6 +53,7 @@ class TartanCostDataset(Dataset):
         self.frame_skip = frame_skip # sample not consequtively, skip a few frames within a sequences
         self.frame_stride = frame_stride # sample less sequence, skip a few frames between two sequences 
         self.new_odom_flag = new_odom_flag # somehow, the odom axis of tartandrive is different from the odom axis in recent bagfiles
+        self.coverage = coverage
 
         self.datatypelist = datatypes.split(',')
         self.modalitylenlist = modalitylens
@@ -238,8 +240,10 @@ class TartanCostDataset(Dataset):
                 heightmap = heightmap * 10
                 heightmap[:,:,3] = heightmap[:,:,3] * 10 # std channel
                 heightmap = np.clip(heightmap, -20, 20)
-            reslist.append(np.concatenate((heightmap, masknp), axis=-1))
-        return reslist
+            heightmap_mask = np.concatenate((heightmap, masknp), axis=-1)
+            heightmap_mask = heightmap_mask.transpose(2,0,1) # C x H x W
+            reslist.append(torch.from_numpy(heightmap_mask)) # convert to tensor
+        return torch.stack(reslist, dim=0)
 
     def normalize_rgbmap(self, rgblist):
         reslist = []
@@ -248,8 +252,9 @@ class TartanCostDataset(Dataset):
         for rgbmap in rgblist:
             rgbmap = rgbmap.astype(np.float32)/255.
             rgbmap = (rgbmap - mean)/std
-            reslist.append(rgbmap)
-        return reslist
+            rgbmap = rgbmap.transpose(2,0,1)
+            reslist.append(torch.from_numpy(rgbmap))
+        return torch.stack(reslist, dim=0)
 
     def normalize_vel(self, vel):
         vel[...,0] = vel[...,0] / 5.
@@ -275,7 +280,7 @@ class TartanCostDataset(Dataset):
                 sample[datatype] = imglist
             elif datatype == 'disp0' or datatype == 'heightmap' or datatype=='rgbmap':
                 datalist = self.load_numpy(datafilelist)
-                if datatype == 'heightmap':
+                if datatype == 'heightmap': 
                     datalist = self.filter_add_mask(datalist) # filter the very large and small numbers, add a mask channel
                 if datatype == 'rgbmap':
                     datalist = self.normalize_rgbmap(datalist)
@@ -305,7 +310,7 @@ class TartanCostDataset(Dataset):
             datalen_odom = self.modalitylenlist[self.datatypelist.index("odom")]
             assert datalen <= datalen_odom, "Data length error, odom should be more than patches!"
 
-            patcheslist, masks = self.get_crops(sample["heightmap"], sample["rgbmap"], sample["odom"], self.map_metadata, self.crop_params)
+            patcheslist, masks = self.get_crops(sample["heightmap"], sample["rgbmap"], sample["odom"], self.map_metadata, self.crop_params, coverage=self.coverage)
             sample["patches"] = patcheslist
             sample["masks"] = masks
 
@@ -368,11 +373,13 @@ class TartanCostDataset(Dataset):
         print('load size', datalist.shape)
         return datalist
 
-    def get_crops(self, heightmaps, rgbmaps, odom, map_metadata, crop_params):
+    def get_crops(self, heightmaps, rgbmaps, odom, map_metadata, crop_params, coverage=False):
         '''Returns (patches, costs)
         '''
-        rgb_map_tensor = torch.from_numpy(rgbmaps[0]).permute(2,0,1) # (C,H,W)
-        height_map_tensor = torch.from_numpy(heightmaps[0]).permute(2,0,1) # (C,H,W)
+        # rgb_map_tensor = torch.from_numpy(rgbmaps[0]).permute(2,0,1) # (C,H,W)
+        # height_map_tensor = torch.from_numpy(heightmaps[0]).permute(2,0,1) # (C,H,W)
+        rgb_map_tensor = rgbmaps[0] # (C,H,W)
+        height_map_tensor = heightmaps[0] # (C,H,W)
 
         maps = {
             'rgb_map':rgb_map_tensor,
@@ -382,11 +389,14 @@ class TartanCostDataset(Dataset):
         device = "cpu" # "cuda" if torch.cuda.is_available() else "cpu"
         tm = TerrainMap(maps=maps, map_metadata=map_metadata, device=device)
 
-        local_path = get_local_path(odom)
-        if not self.new_odom_flag:
-            # if using GPS odom
-            local_path = local_path[:, [1,0,2]] # swith x and y
-            local_path[:,1] = -local_path[:,1]
+        if coverage:
+            local_path = get_coverage_path(map_metadata, stride=0.2, crop_size=crop_params['crop_size'])
+        else:
+            local_path = get_local_path(odom)
+            if not self.new_odom_flag:
+                # if using GPS odom
+                local_path = local_path[:, [1,0,2]] # swith x and y
+                local_path[:,1] = -local_path[:,1]
         # if using tartan-vo
         # local_path[:,1:] = -local_path[:,1:]
         # masks: b x h x w x 2
@@ -397,6 +407,23 @@ class TartanCostDataset(Dataset):
 
         return patches, masks
 
+def get_coverage_path(map_metadata, stride, crop_size):
+    '''
+    '''
+    origin = map_metadata['origin'] # [-2, -6]
+    map_height = map_metadata['height'] # 12
+    map_width = map_metadata['width'] # 12
+
+    minx = origin[0] + crop_size[0]/2
+    maxx = origin[0] + map_height - crop_size[0]/2
+    miny = origin[1] + crop_size[1]/2
+    maxy = origin[1] + map_width - crop_size[1]/2
+
+    pathlist = []
+    for x in np.arange(minx, maxx+stride, stride):
+        for y in np.arange(miny, maxy+stride, stride):
+            pathlist.append([x, y, 0.0])
+    return np.array(pathlist)
 
 if __name__ == '__main__':
     from .utils import add_text
@@ -416,8 +443,11 @@ if __name__ == '__main__':
     framelistfile = 'data/rough_rider.txt'
     datarootdir = '/cairo/arl_bag_files/SARA/2022_05_31_trajs'
 
-    datatypes = "heightmap,rgbmap,odom,patches,cost" #"img0,img1,imgc,disp0,heightmap,rgbmap,cmd,odom,imu"
-    modalitylens = [1,1,10,10,10] # [10,10,10,10,10,10,10,10,100]
+    framelistfile = 'data/local_test.txt'
+    datarootdir = '/home/wenshan/tmp/arl_data/full_trajs'
+
+    datatypes = "heightmap,rgbmap,odom,patches,cost,vels" #"img0,img1,imgc,disp0,heightmap,rgbmap,cmd,odom,imu"
+    modalitylens = [1,1,10,10,10,10] # [10,10,10,10,10,10,10,10,100]
     batch = 50
     workernum = 2
 
@@ -442,6 +472,8 @@ if __name__ == '__main__':
         'output_size': output_size
     }
 
+    # # test the coverage path
+    # get_coverage_path(map_metadata, stride=0.2, crop_size=crop_size)
 
     stride = 2
     skip = 0
@@ -453,7 +485,7 @@ if __name__ == '__main__':
                             modalitylens = modalitylens, \
                             transform=None, \
                             imu_freq = 10, \
-                            frame_skip = skip, frame_stride=stride, new_odom_flag=True)
+                            frame_skip = skip, frame_stride=stride, new_odom_flag=False, coverage=True)
     print('Dataset length: ',len(dataset))
 
     # # test the speed
@@ -469,68 +501,68 @@ if __name__ == '__main__':
     #             print('   {}: shape {}'.format(k, e.shape))
 
 
-    dataloader = DataLoader(dataset, batch_size=batch, shuffle=True, num_workers=workernum)
-    dataiter = iter(dataloader)
-    print('Dataset length: ',len(dataset))
-    while True:
-        starttime = time.time()
-        try:
-            sample = dataiter.next()
-        except StopIteration:
-            dataiter = iter(dataloader)
-            sample = dataiter.next()
-        print('Sample load time: {}'.format(time.time() - starttime))
+    # dataloader = DataLoader(dataset, batch_size=batch, shuffle=True, num_workers=workernum)
+    # dataiter = iter(dataloader)
+    # print('Dataset length: ',len(dataset))
+    # while True:
+    #     starttime = time.time()
+    #     try:
+    #         sample = dataiter.next()
+    #     except StopIteration:
+    #         dataiter = iter(dataloader)
+    #         sample = dataiter.next()
+    #     print('Sample load time: {}'.format(time.time() - starttime))
 
 
     # # rgblist = []
     # # rgbind = 9
 
-    # # import pdb;pdb.set_trace()
-    # for k in range(0, 2250, 1):
-    #     sample = dataset[k]
-    #     # import ipdb;ipdb.set_trace()
+    # import pdb;pdb.set_trace()
+    for k in range(40, 160, 1):
+        sample = dataset[k]
+        # import ipdb;ipdb.set_trace()
 
-    #     rgbmap = sample['rgbmap'][0] #np.load(join(base_dir, rgbmap_folder, maplist[startframe]))
-    #     heightmap = sample['heightmap'][0] #np.load(join(base_dir, heightmap_folder, maplist[startframe]))c
+        rgbmap = sample['rgbmap'][0] #np.load(join(base_dir, rgbmap_folder, maplist[startframe]))
+        heightmap = sample['heightmap'][0] #np.load(join(base_dir, heightmap_folder, maplist[startframe]))c
 
-    #     # rgb_map_tensor = torch.from_numpy(rgbmap).permute(2,0,1) # (C,H,W)
-    #     # height_map_tensor = torch.from_numpy(heightmap).permute(2,0,1) # (C,H,W)
-    #     patches = sample['patches']
-    #     masks = sample['masks']
-    #     cost = sample['cost']
-    #     # cost2 = sample['cost2']
-    #     vels = sample['vels']
-    #     print(vels)
-    #     import ipdb;ipdb.set_trace()
+        # rgb_map_tensor = torch.from_numpy(rgbmap).permute(2,0,1) # (C,H,W)
+        # height_map_tensor = torch.from_numpy(heightmap).permute(2,0,1) # (C,H,W)
+        patches = sample['patches']
+        masks = sample['masks']
+        cost = sample['cost']
+        # cost2 = sample['cost2']
+        vels = sample['vels']
+        print(vels)
+        import ipdb;ipdb.set_trace()
 
-    #     patches_numpy_list = []
-    #     plotstride = 1
-    #     for ind in range(0, len(patches), plotstride):
-    #         ppp = patches[ind][:3].numpy().transpose((1,2,0)).astype(np.uint8)
-    #         costind = np.clip(int(ind),0,len(cost))
-    #         ppp = add_text(ppp.copy(), str(cost[costind])[:5])
-    #         patches_numpy_list.append(ppp) 
-    #     listhalflen = len(patches_numpy_list)//2
-    #     patchvis0 = np.concatenate(patches_numpy_list[:listhalflen], axis=1)
-    #     patchvis1 = np.concatenate(patches_numpy_list[listhalflen:], axis=1)
-    #     patchvis = np.concatenate((patchvis0, patchvis1), axis=0)
+        patches_numpy_list = []
+        plotstride = 1
+        for ind in range(0, len(patches), plotstride):
+            ppp = patches[ind][:3].numpy().transpose((1,2,0)).astype(np.uint8)
+            # costind = np.clip(int(ind),0,len(cost))
+            # ppp = add_text(ppp.copy(), str(cost[costind])[:5])
+            # patches_numpy_list.append(ppp) 
+        # listhalflen = len(patches_numpy_list)//2
+        # patchvis0 = np.concatenate(patches_numpy_list[:listhalflen], axis=1)
+        # patchvis1 = np.concatenate(patches_numpy_list[listhalflen:], axis=1)
+        # patchvis = np.concatenate((patchvis0, patchvis1), axis=0)
 
-    #     for w in range(0, masks.shape[0], plotstride):
-    #         # inds = masks[k].view(-1, 2)
-    #         mask = masks[w].permute(1,2,0)
-    #         inds = torch.cat((mask[0,:,:], mask[-1,:,:], mask[:,0,:], mask[:,-1,:]),dim=0)
-    #         rgbmap[inds[:,0],inds[:,1],:] = [255,0,0]
+        for w in range(0, masks.shape[0], plotstride):
+            # inds = masks[k].view(-1, 2)
+            mask = masks[w].permute(1,2,0)
+            inds = torch.cat((mask[0,:,:], mask[-1,:,:], mask[:,0,:], mask[:,-1,:]),dim=0)
+            rgbmap[inds[:,0],inds[:,1],:] = [255,0,0]
 
-    #     cv2.imshow('img',patchvis)
-    #     cv2.waitKey(1)
-    #     cv2.imshow('map',rgbmap)
-    #     cv2.waitKey(0)
-    #     # import ipdb;ipdb.set_trace()
+        # cv2.imshow('img',patchvis)
+        # cv2.waitKey(1)
+        cv2.imshow('map',rgbmap)
+        cv2.waitKey(0)
+        # import ipdb;ipdb.set_trace()
 
-    # #     rgblist.append(patches_numpy_list[rgbind])
-    # #     rgbind -= 1
+    #     rgblist.append(patches_numpy_list[rgbind])
+    #     rgbind -= 1
 
-    # # patchvis = np.concatenate(rgblist, axis=1)
-    # # cv2.imshow("patches", patchvis)
-    # # cv2.waitKey(0)
-    # import ipdb;ipdb.set_trace()
+    # patchvis = np.concatenate(rgblist, axis=1)
+    # cv2.imshow("patches", patchvis)
+    # cv2.waitKey(0)
+    import ipdb;ipdb.set_trace()

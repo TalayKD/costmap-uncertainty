@@ -57,6 +57,9 @@ def get_args():
     parser.add_argument('--test', action='store_true', default=False,
                         help='test (default: False)')
 
+    parser.add_argument('--test-traj', action='store_true', default=False,
+                        help='test trajectory (default: False)')
+
     parser.add_argument('--test-num', type=int, default=10,
                         help='test (default: 10)')
 
@@ -87,11 +90,14 @@ def get_args():
     parser.add_argument('--skip', type=int, default=0,
                         help='The skip of the dataloader.')
 
-    parser.add_argument('--crop-num', type=int, default=0,
+    parser.add_argument('--crop-num', type=int, default=1,
                         help='The number of patches of the dataloader.')
 
     parser.add_argument('--data-root', default='/project/learningphysics',
                         help='root folder of the data')
+
+    parser.add_argument('--test-vel', type=float, default=0.0,
+                        help='test velocity (default: 0.0)')
 
     args = parser.parse_args()
 
