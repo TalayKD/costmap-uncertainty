@@ -115,6 +115,8 @@ def vis_low_score_data():
     # rootdir = '/project/learningphysics/2022_traj'
     rootdir = '/cairo/arl_bag_files/SARA/2022_05_31_trajs'
     threshold = 2.0
+    rootdir = '/home/wenshan/tmp/arl_data/trajs'
+    threshold = 5.0
     outvidfile = 'Low_score_'+str(threshold)+'.mp4'
 
 
