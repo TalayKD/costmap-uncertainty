@@ -32,18 +32,18 @@ test_traj_list = [
 ]
 
 file_balance = {
-    # 'datafile/cost_high_2022_crop5_score3.0.txt': 5,
-    'datafile/cost_high_td_crop5_score2.0.txt': 5,
-    # 'datafile/cost_low_2022_crop5_score3.0.txt': 2,
-    'datafile/cost_low_td_crop5_score2.0.txt': 2,
-    # 'datafile/cost_mid_2022_crop5_score3.0.txt': 5,
-    'datafile/cost_mid_td_crop5_score2.0.txt': 5,
-    # 'datafile/cost_zero_2022_crop5_score3.0.txt': 1,
-    'datafile/cost_zero_td_crop5_score2.0.txt': 1
+    'datafile/cost_high_2022_crop1_score3.0.txt': 5,
+    'datafile/cost_high_td_crop1_score2.0.txt': 5,
+    'datafile/cost_low_2022_crop1_score3.0.txt': 2,
+    'datafile/cost_low_td_crop1_score2.0.txt': 2,
+    'datafile/cost_mid_2022_crop1_score3.0.txt': 5,
+    'datafile/cost_mid_td_crop1_score2.0.txt': 5,
+    'datafile/cost_zero_2022_crop1_score3.0.txt': 1,
+    'datafile/cost_zero_td_crop1_score2.0.txt': 1
 }
 
-outputfile = 'datafile/combine_train_crop5_tartandrive.txt'
-outputfile_val = 'datafile/combine_test_crop5_tartandrive.txt'
+outputfile = 'datafile/combine_train_crop1.txt'
+outputfile_val = 'datafile/combine_test_crop1.txt'
 
 
 def parse_inputfile(inputfile):

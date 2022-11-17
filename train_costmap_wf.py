@@ -15,7 +15,6 @@ from arguments import get_args
 import numpy as np
 
 from dataloader.TartanDriveDataset import TartanCostDataset
-from network.CostNet import CostResNet
 
 import time
 import cv2
@@ -42,7 +41,13 @@ class TrainCostmap(TorchFlow.TorchFlow):
         super(TrainCostmap, self).__init__(workingDir, prefix, suffix, disableStreamLogger = False, plotterType = plotterType)
         self.args = args    
         self.saveModelName = 'costnet'
-        self.costnet = CostResNet(inputnum=8, outputnum=1,velinputlen=32)
+        self.network = args.network
+        if args.network == 1:
+            from network.CostNet import CostResNet
+            self.costnet = CostResNet(inputnum=8, outputnum=1,velinputlen=32)
+        elif args.network ==2:
+            from network.CostNet import TwoHeadCostResNet
+            self.costnet = TwoHeadCostResNet(inputnum1=3, inputnum1=5, outputnum=1,velinputlen=32)
 
         # import ipdb;ipdb.set_trace()
         if self.args.load_model:
