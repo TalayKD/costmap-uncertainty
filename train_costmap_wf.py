@@ -47,7 +47,7 @@ class TrainCostmap(TorchFlow.TorchFlow):
             self.costnet = CostResNet(inputnum=8, outputnum=1,velinputlen=32)
         elif args.network ==2:
             from network.CostNet import TwoHeadCostResNet
-            self.costnet = TwoHeadCostResNet(inputnum1=3, inputnum1=5, outputnum=1,velinputlen=32)
+            self.costnet = TwoHeadCostResNet(inputnum1=3, inputnum2=5, outputnum=1,velinputlen=32)
 
         # import ipdb;ipdb.set_trace()
         if self.args.load_model:

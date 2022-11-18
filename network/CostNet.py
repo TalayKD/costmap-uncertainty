@@ -47,7 +47,7 @@ class CostResNet(nn.Module):
             vel = vel.repeat(1,self.velinputlen//2)
             x = torch.cat((x,vel),dim=-1)
         x = self.cost_out(x)
-        x = x.squeeze(0)
+        x = x.squeeze(-1)
         return x
 
 
@@ -114,7 +114,7 @@ class TwoHeadCostResNet(nn.Module):
             vel = vel.repeat(1,self.velinputlen//2)
             x = torch.cat((x,vel),dim=-1)
         x = self.cost_out(x)
-        x = x.squeeze(0)
+        x = x.squeeze(-1)
         return x
 
 if __name__ == "__main__":
