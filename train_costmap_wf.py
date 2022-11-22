@@ -9,6 +9,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
+import torch.nn.functional as F
 
 from workflow import WorkFlow, TorchFlow
 from arguments import get_args
@@ -36,6 +37,36 @@ def denormalize_vis_rgbmap(rgbmap):
     rgbmap_np = rgbmap_np.astype(np.uint8)
     return rgbmap_np
 
+def denormalize_vis_heightmap(heightmap):
+    # heightmap: c x H x W
+    # denormalize the heightmap
+    heightmap_np = heightmap.transpose(1,2,0)
+    heightmap_np = np.clip(heightmap_np[:,:,2] * 25, 0 ,255)
+    heightmap_np = heightmap_np.astype(np.uint8)
+    heightmap_vis = cv2.applyColorMap(heightmap_np, cv2.COLORMAP_JET)
+    return heightmap_vis
+
+def get_coverage_path(map_metadata, stride, crop_size):
+    '''
+    '''
+    map_height = map_metadata['height'] # 12
+    map_width = map_metadata['width'] # 12
+    resolution = map_metadata['resolution'] # 0.02
+
+    cropx_px = int(crop_size[0]/resolution)
+    cropy_px = int(crop_size[1]/resolution)
+
+    map_height_px = int(map_height/resolution) # 600
+    map_width_px = int(map_width/resolution) # 600
+    stride_px = int(stride/resolution) # 0.2 -> 10
+
+    pathlist = []
+    for x in np.arange(0, map_height_px-cropx_px+stride_px, stride_px):
+        for y in np.arange(0, map_width_px-cropy_px+stride_px, stride_px):
+            pathlist.append([x, y, x+cropx_px, y+cropy_px])
+    # import ipdb;ipdb.set_trace()
+    return np.array(pathlist)
+
 class TrainCostmap(TorchFlow.TorchFlow):
     def __init__(self, workingDir, args, prefix = "", suffix = "", plotterType = 'Visdom'):
         super(TrainCostmap, self).__init__(workingDir, prefix, suffix, disableStreamLogger = False, plotterType = plotterType)
@@ -47,7 +78,7 @@ class TrainCostmap(TorchFlow.TorchFlow):
             self.costnet = CostResNet(inputnum=8, outputnum=1,velinputlen=32)
         elif args.network ==2:
             from network.CostNet import TwoHeadCostResNet
-            self.costnet = TwoHeadCostResNet(inputnum1=3, inputnum2=5, outputnum=1,velinputlen=32)
+            self.costnet = TwoHeadCostResNet(inputnum1=3, inputnum2=5, outputnum=1,velinputlen=32, config=args.net_config)
 
         # import ipdb;ipdb.set_trace()
         if self.args.load_model:
@@ -111,13 +142,19 @@ class TrainCostmap(TorchFlow.TorchFlow):
                                 map_metadata=map_metadata,
                                 crop_params=crop_params,
                                 dataroot= datarootdir, \
-                                datatypes = datatypes, \
-                                modalitylens = modalitylens, \
+                                datatypes = "heightmap,rgbmap,imgc", \
+                                modalitylens = [1,1,1], \
                                 transform=None, \
                                 imu_freq = 10, \
-                                frame_skip = skip, frame_stride=stride, 
-                                new_odom_flag=False, coverage=True)
+                                frame_skip = 0, frame_stride=1, 
+                                new_odom_flag=False)
             test_shuffle = False
+            cropstide = 0.4 # m
+            self.pathlist = get_coverage_path(map_metadata, cropstide, crop_params['crop_size'])
+            self.patchnum = len(self.pathlist)
+            self.scale_factor = [crop_params['output_size'][0]/(self.pathlist[0][2]-self.pathlist[0][0]), 
+                                crop_params['output_size'][1]/(self.pathlist[0][3]-self.pathlist[0][1])]
+            print("Crop {} patches for each frame".format(self.patchnum))
         else:
             testDataset = TartanCostDataset(testframelistfile, \
                                 map_metadata=map_metadata,
@@ -274,37 +311,56 @@ class TrainCostmap(TorchFlow.TorchFlow):
         sample = None
         return lossnum, output
 
-    def test_traj(self,maxpatch_size = 300):
+    def test_traj(self,maxpatch_size = 500):
         super(TrainCostmap, self).test()
         self.test_count += 1
-        # import ipdb;ipdb.set_trace()
         self.costnet.eval()
 
         try:
             sample = self.testDataiter.next()
         except StopIteration:
-            self.testDataiter = iter(self.testDataloader)
-            sample = self.testDataiter.next()
+            return None, None, None, None 
+            # self.testDataiter = iter(self.testDataloader)
+            # sample = self.testDataiter.next()
 
-        patches = sample['patches']
-        batchsize, patchsize, _, _, _ = patches.shape
-        subsample = {}
-        outputlist = []
-        for k in range(0, patchsize, maxpatch_size):
-            endind = min(maxpatch_size+k, patchsize)
-            subsample['patches'] = patches[:,k:endind]
-            subpatchsize = endind - k
-            subsample['cost'] = torch.zeros((batchsize, subpatchsize), dtype=torch.float32) # N x M 
-            subsample['vels'] = torch.zeros((batchsize, subpatchsize, 2), dtype=torch.float32) # N x M x 2
-            subsample['vels'][:,:,0] = args.test_vel / 5.0 
+        rgbmap = sample['rgbmap']
+        heightmap = sample['heightmap']
 
-            with torch.no_grad():
-                _, output = self.forward(subsample)
-            outputlist.extend(output.cpu().numpy())
-        vismap = sample['rgbmap'][0][0].numpy()
+        assert rgbmap.shape[0] == 1, 'when test_traj, test-batch-size should be 1'
+        maps = torch.cat((rgbmap[0][0], heightmap[0][0]), dim=0) # 8 x H x W
+
+        costlist = []
+        for vel in [2.0, 4.0 ,6.0, 8.0]:
+            outputlist = []
+            for k in range(0, self.patchnum, maxpatch_size):
+                endind = min(maxpatch_size+k, self.patchnum)
+                subsample = {} 
+                patches = []
+                for w in range(k, endind): 
+                    patchloc = self.pathlist[w]
+                    patch = maps[:, patchloc[0]:patchloc[2], patchloc[1]:patchloc[3]]
+                    patches.append(patch) # F.interpolate(output[0], scale_factor=4, mode='bilinear')
+                # import ipdb;ipdb.set_trace()
+                patches = torch.stack(patches, dim=0)
+                patches = F.interpolate(patches, scale_factor=self.scale_factor)
+                subsample['patches'] = patches.unsqueeze(0)
+                subpatchsize = endind - k
+                subsample['cost'] = torch.zeros((1, subpatchsize), dtype=torch.float32) # N x M 
+                subsample['vels'] = torch.zeros((1, subpatchsize, 2), dtype=torch.float32) # N x M x 2
+                subsample['vels'][:,:,0] = vel / 5.0 
+
+                with torch.no_grad():
+                    _, output = self.forward(subsample)
+                outputlist.extend(output.cpu().numpy())
+            costlist.append(np.array(outputlist))
+            
+        print("Test {}".format(self.test_count))
+        visrgbmap = sample['rgbmap'][0][0].numpy()
+        visheightmap = sample['heightmap'][0][0].numpy()
+        visfpv = sample['imgc'][0][0].numpy()
         # vid.write(disp_color)
         sample = None
-        return np.array(outputlist), vismap
+        return costlist, visrgbmap, visheightmap, visfpv
 
     def finalize(self):
         super(TrainCostmap, self).finalize()
@@ -315,7 +371,54 @@ class TrainCostmap(TorchFlow.TorchFlow):
             self.logger.info('The average loss values:')
             self.logger.info('%.4f \t %.4f ' % (self.AV['loss'].last_avg(100), self.AV['test_loss'].last_avg(100)))
 
+def visualize_output(outputlist, visrgbmap, visheightmap, visfpv): 
+    '''
+    outputlist: 4 x ( H x W ) cost estimation
+    visrgbmap: H x W x 3 
+    visheightmap: H x W 
+    visfpv: H x W x 3
+    '''
+    visfpv = cv2.resize(visfpv, (800, 400), interpolation=cv2.INTER_LINEAR)
 
+    mapvis = denormalize_vis_rgbmap(visrgbmap)
+    mapvis_400 = cv2.resize(mapvis, (400, 400), interpolation=cv2.INTER_LINEAR)
+    mapvis_200 = cv2.resize(mapvis, (200, 200), interpolation=cv2.INTER_LINEAR)
+    mapvis_200 = cv2.flip(mapvis_200, -1)
+
+    maphvis = denormalize_vis_heightmap(visheightmap)
+    maphvis_400 = cv2.resize(maphvis, (400, 400), interpolation=cv2.INTER_LINEAR)
+
+    mapsvis = np.concatenate((maphvis_400,mapvis_400), axis=0) # 800 x 400
+    mapsvis = cv2.flip(mapsvis, -1)
+
+    costvislist, costoverlaylist = [], []
+    vellist = ['Vel='+str(k)+' m/s' for k in [2,4,6,8]]
+    # import ipdb;ipdb.set_trace()
+    for k in range(4): # hard code
+        output = outputlist[k]
+    # save the file for debug
+        patchsize = len(output)                
+        mapsize = int(sqrt(patchsize))
+        outputnp = output.reshape(mapsize, mapsize)
+        disp = np.clip((outputnp*255),0,255).astype(np.uint8)
+        disp = cv2.resize(disp, (133, 133), interpolation=cv2.INTER_LINEAR) #
+        disp_pad = np.zeros((200,200),dtype=np.uint8)
+        disp_pad[33:166,33:166] = disp
+        disp_color = cv2.applyColorMap(disp_pad, cv2.COLORMAP_JET)
+        disp_color = cv2.flip(disp_color, -1)
+        disp_color = cv2.putText(disp_color, vellist[k], (45,25),cv2.FONT_HERSHEY_SIMPLEX,0.4,(0,210,245),thickness=1)
+        disp_overlay = (mapvis_200 * 0.6 + disp_color * 0.4).astype(np.uint8)
+        costvislist.append(disp_color)
+        costoverlaylist.append(disp_overlay)
+    costvis = np.concatenate(
+                (costvislist[0],costvislist[1],costvislist[2],costvislist[3]),axis=1) # 
+    costoverlay = np.concatenate(
+                (costoverlaylist[0],costoverlaylist[1],costoverlaylist[2],costoverlaylist[3]),axis=1)
+    costvisimg = np.concatenate((costvis, costoverlay), axis=0) # 400 x 800
+
+    visimg = np.concatenate((mapsvis, 
+                            np.concatenate((visfpv, costvisimg),axis=0)), axis=1)
+    return visimg
 
 if __name__ == '__main__':
     args = get_args()
@@ -325,31 +428,20 @@ if __name__ == '__main__':
         trainCostmap.initialize()
 
         if args.test_traj:
-            outvidfile = 'test_20220531_lowvel_0.mp4'
+            outvidfile = args.model_name.split('.pkl')[0] +'_'+ args.out_vid_file #'test_20220531_lowvel_0.mp4'
             fourcc = cv2.VideoWriter_fourcc(*'MP4V')
-            fout=cv2.VideoWriter(outvidfile, fourcc, 10, (1800, 600))
+            fout=cv2.VideoWriter(outvidfile, fourcc, 10, (1200, 800))
             while True:
-                output, vismap = trainCostmap.test_traj()
-                # import ipdb;ipdb.set_trace()
-                # save the file for debug
-                patchsize = len(output)                
-                mapsize = int(sqrt(patchsize))
-                outputnp = output.reshape(mapsize,mapsize)
-                disp = (outputnp*255).astype(np.uint8)
-                disp = cv2.resize(disp, (400, 400), interpolation=cv2.INTER_NEAREST)
-                disp_pad = np.zeros((600,600),dtype=np.uint8)
-                disp_pad[100:500,100:500] = disp
-                disp_color = cv2.applyColorMap(disp_pad, cv2.COLORMAP_JET)
-                # disp_color = cv2.flip(disp_color, -1)
-                mapvis = denormalize_vis_rgbmap(vismap)
-                disp_overlay = (mapvis //2 + disp_color//2)
-                visimg = np.concatenate((disp_color, mapvis, disp_overlay), axis=1)
+                outputlist, visrgbmap, visheightmap, visfpv = trainCostmap.test_traj()
+                if outputlist is None:
+                    break
+                visimg = visualize_output(outputlist, visrgbmap, visheightmap, visfpv)
                 cv2.imshow('img', visimg)
                 cv2.waitKey(10)
                 fout.write(visimg)
 
-                if trainCostmap.test_count >= args.test_num:
-                    break
+                # if trainCostmap.test_count >= args.test_num:
+                #     break
             print("Test reaches the maximum test number (%d)." % (args.test_num))
             fout.release()
 

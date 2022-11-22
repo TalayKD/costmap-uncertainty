@@ -75,6 +75,9 @@ def get_args():
     parser.add_argument('--network', type=int, default=1,
                         help='network structure')
 
+    parser.add_argument('--net-config', type=int, default=0,
+                        help='network structure')
+
     parser.add_argument('--no-data-augment', action='store_true', default=False,
                         help='no data augmentation (default: False)')
 
@@ -98,6 +101,9 @@ def get_args():
 
     parser.add_argument('--test-vel', type=float, default=0.0,
                         help='test velocity (default: 0.0)')
+
+    parser.add_argument('--out-vid-file', default='',
+                        help='name of the output video file in the test-traj mode')
 
     args = parser.parse_args()
 

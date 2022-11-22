@@ -52,12 +52,19 @@ class CostResNet(nn.Module):
 
 
 class TwoHeadCostResNet(nn.Module):
-    def __init__(self, inputnum1, inputnum2, outputnum, velinputlen=0):
+    def __init__(self, inputnum1, inputnum2, outputnum, velinputlen=0, config=0):
         super().__init__()
         # blocknums = [2,2,3,3,3]
         # outputnums = [16,32,64,64,128,128,256]
-        blocknums = [1,1,1,1,1]
-        outputnums = [16,16,32,32,64,64,128]
+        if config == 0:
+            blocknums = [1,1,1,1,1]
+            outputnums = [16,16,32,32,64,64,128]
+            linearnum = [64, 16]
+        else:
+            blocknums = [1,1,1,1,1]
+            outputnums = [8,16,16,16,32,32,64]
+            linearnum = [32, 8]
+
         self.velinputlen = velinputlen
         self.inputnum1 = inputnum1
 
@@ -77,9 +84,9 @@ class TwoHeadCostResNet(nn.Module):
 
         self.lastconv = Conv(outputnums[5],outputnums[6], kernel_size=4, stride=1, padding=0) # 1 x 1 (128)
 
-        fc1 = Linear(outputnums[6] + velinputlen, 64)
-        fc2 = Linear(64,16)
-        fc3 = nn.Linear(16, outputnum)
+        fc1 = Linear(outputnums[6] + velinputlen, linearnum[0])
+        fc2 = Linear( linearnum[0], linearnum[1])
+        fc3 = nn.Linear( linearnum[1], outputnum)
 
         self.cost_out = nn.Sequential(fc1, fc2, fc3)
 
@@ -120,11 +127,11 @@ class TwoHeadCostResNet(nn.Module):
 if __name__ == "__main__":
     import time
     model = CostResNet(8, 1)
-    model = TwoHeadCostResNet(3, 5, 1)
+    model = TwoHeadCostResNet(3, 5, 1, velinputlen=16, config=1)
     model.cuda()
     # print(model)
 
-    batchlist = [1,10,100,500]
+    batchlist = [1,10,100,400]
 
     for batch in batchlist:
         # batch = 10  
@@ -132,7 +139,7 @@ if __name__ == "__main__":
         imgTensor = torch.rand(batch, channel, 224, 224).cuda()
         velTensor = torch.rand(batch, 2).cuda()
 
-        output = model(imgTensor)
+        output = model(imgTensor,velTensor)
         # output = model({"patches": imgTensor, "fourier_vels": velTensor})
         # import ipdb;ipdb.set_trace()
         print(output.shape)
@@ -140,7 +147,7 @@ if __name__ == "__main__":
         starttime = time.time()
         for k in range(100):
             with torch.no_grad():
-                output = model(imgTensor)
+                output = model(imgTensor,velTensor)
                 # output = model({"patches": imgTensor, "fourier_vels": velTensor})
                 
             # print(output.shape)

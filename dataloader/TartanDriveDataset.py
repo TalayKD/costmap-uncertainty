@@ -4,6 +4,7 @@ import numpy as np
 import cv2
 from scipy.spatial.transform import Rotation
 np.set_printoptions(precision=2, suppress=True)
+import random
 
 from torch.utils.data import Dataset
 import torch
@@ -245,6 +246,22 @@ class TartanCostDataset(Dataset):
             reslist.append(torch.from_numpy(heightmap_mask)) # convert to tensor
         return torch.stack(reslist, dim=0)
 
+    def random_hsv(self, rgblist):
+        reslist = []
+        for rgbmap in rgblist:
+            h = (random.random()*2-1) * 30
+            s = (random.random()*2-1) * 30
+            v = (random.random()*2-1) * 30
+            imghsv = cv2.cvtColor(rgbmap, cv2.COLOR_BGR2HSV)
+            # import ipdb;ipdb.set_trace()
+            imghsv = imghsv.astype(np.int16)
+            imghsv[:,:,0] = np.clip(imghsv[:,:,0]+h, 0, 255)
+            imghsv[:,:,1] = np.clip(imghsv[:,:,1]+s, 0, 255)
+            imghsv[:,:,2] = np.clip(imghsv[:,:,2]+v, 0, 255)
+            imghsv = imghsv.astype(np.uint8)
+            reslist.append(cv2.cvtColor(imghsv,cv2.COLOR_HSV2BGR))
+        return reslist
+
     def normalize_rgbmap(self, rgblist):
         reslist = []
         mean = np.array([0.485, 0.456, 0.406], dtype=np.float32).reshape(1,1,3)
@@ -273,7 +290,7 @@ class TartanCostDataset(Dataset):
         # hacking way to solve the odom inconsistency issue
         if trajstr.startswith('tartandrive_trajs'): # this is a trajectory from tartandrive
             new_odom = False
-        elif trajstr.startswith('2022_traj'):
+        elif trajstr.startswith('2022_traj') or trajstr.startswith('20220531'):
             new_odom = True
         else:
             assert False, "Unsupported trajectory {}".format(trajstr)
@@ -292,7 +309,8 @@ class TartanCostDataset(Dataset):
                 if datatype == 'heightmap': 
                     datalist = self.filter_add_mask(datalist) # filter the very large and small numbers, add a mask channel
                 if datatype == 'rgbmap':
-                    datalist = self.normalize_rgbmap(datalist)
+                    datalist = self.random_hsv(datalist)
+                    datalist = self.normalize_rgbmap(datalist) 
                 sample[datatype] = datalist
             elif datatype == 'odom':
                 odomlist, odomlist_tartanvo = self.load_odom(frameindlist, datalen)
@@ -400,7 +418,7 @@ class TartanCostDataset(Dataset):
         tm = TerrainMap(maps=maps, map_metadata=map_metadata, device=device)
 
         if coverage:
-            local_path = get_coverage_path(map_metadata, stride=0.2, crop_size=crop_params['crop_size'])
+            local_path = get_coverage_path(map_metadata, stride=0.4, crop_size=crop_params['crop_size'])
         else:
             local_path = get_local_path(odom)
             if not new_odom:
@@ -454,7 +472,7 @@ if __name__ == '__main__':
     datarootdir = '/cairo/arl_bag_files/SARA/2022_05_31_trajs'
 
     framelistfile = 'data/local_test.txt'
-    datarootdir = '/cairo/arl_bag_files/SARA/test_loader'
+    datarootdir = '/cairo/arl_bag_files/SARA/test_loader/2022_traj'
 
     datatypes = "heightmap,rgbmap,odom,patches,cost,vels" #"img0,img1,imgc,disp0,heightmap,rgbmap,cmd,odom,imu"
     modalitylens = [1,1,10,10,10,10] # [10,10,10,10,10,10,10,10,100]
@@ -511,6 +529,8 @@ if __name__ == '__main__':
     #             print('   {}: len {}, shape {}'.format(k, len(e), e[0].shape))
     #         elif isinstance(e, np.ndarray):
     #             print('   {}: shape {}'.format(k, e.shape))
+    mean = np.array([0.485, 0.456, 0.406], dtype=np.float32).reshape(1,1,3)
+    std = np.array([0.229, 0.224, 0.225], dtype=np.float32).reshape(1,1,3)
 
     dataloader = DataLoader(dataset, batch_size=batch, shuffle=True, num_workers=workernum)
     dataiter = iter(dataloader)
@@ -523,6 +543,7 @@ if __name__ == '__main__':
             sample = dataiter.next()
 
         rgbmap = sample['rgbmap'][0][0].permute(1,2,0).numpy()
+        rgbmap = np.clip((rgbmap * std + mean) * 255, 0 ,255).astype(np.uint8)
         patches = sample['patches']
         masks = sample['masks'][0]
         # import ipdb;ipdb.set_trace()
