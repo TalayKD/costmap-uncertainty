@@ -62,6 +62,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
 
     parser.add_argument('--data_dir', type=str, required=True, help='Path to the directory that contains the data split up into trajectories.')
+    parser.add_argument('--cost_folder', type=str, required=True, help='Cost folder.')
+    parser.add_argument('--z_acc', type=int, required=True, help='The dimention of the z acc.')
     args = parser.parse_args()
 
     print("Input arguments are the following: ")
@@ -69,6 +71,10 @@ if __name__ == "__main__":
 
     trajectories_dir = args.data_dir
     traj_dirs = list(filter(os.path.isdir, [os.path.join(trajectories_dir,x) for x in sorted(os.listdir(trajectories_dir))]))
+    z_acc = args.z_acc
+    cost_folder = args.cost_folder
+    # for the tartandrive, z_acc = 3
+    # for the arl warthog5 z_acc = 5
 
     min_freq = 0
     max_freq = 10
@@ -78,9 +84,14 @@ if __name__ == "__main__":
     datalen = int(imu_freq * num_seconds)
     imu_offset_seconds = -0.5
     imu_offset_frame = int(imu_freq * imu_offset_seconds)
-    pad_val = -9.8
-    delta_w = 1.0
-    cost_norm = 15.0
+    # pad_val = -9.8
+    # delta_w = 0.0
+    # cost_norm = 15.0
+
+    # for warthog5
+    pad_val = 9.8
+    delta_w = 0.0
+    cost_norm = 10.0
 
     for i, d in enumerate(traj_dirs):
         if "preview" in d:
@@ -94,7 +105,7 @@ if __name__ == "__main__":
         imu_data = np.load(imu_fp)
 
         ## use acc-z and pad the seq
-        acc_z = imu_data[:, 3]
+        acc_z = imu_data[:, z_acc]
         if imu_offset_frame < 0:
             pad_arr = np.array([pad_val]*(-imu_offset_frame), dtype=np.float32)
             acc_z = np.concatenate((pad_arr, acc_z),axis=0)
@@ -140,7 +151,7 @@ if __name__ == "__main__":
 
         # import ipdb;ipdb.set_trace()
         # Write cost_vals and cost_times to own folder in the trajectory
-        cost_dir = os.path.join(d, "cost")
+        cost_dir = os.path.join(d, cost_folder)
         if not os.path.exists(cost_dir):
             os.makedirs(cost_dir)
         
