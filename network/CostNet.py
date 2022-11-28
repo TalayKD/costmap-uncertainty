@@ -52,7 +52,7 @@ class CostResNet(nn.Module):
 
 
 class TwoHeadCostResNet(nn.Module):
-    def __init__(self, inputnum1, inputnum2, outputnum, velinputlen=0, config=0):
+    def __init__(self, inputnum1, inputnum2, outputnum, velinputlen=0, config=0, finetune=False):
         super().__init__()
         # blocknums = [2,2,3,3,3]
         # outputnums = [16,32,64,64,128,128,256]
@@ -90,6 +90,14 @@ class TwoHeadCostResNet(nn.Module):
 
         self.cost_out = nn.Sequential(fc1, fc2, fc3)
 
+        if finetune:
+            fixlist = [self.firstconv_rgb, self.firstconv_hei, 
+                        self.layer0_rgb, self.layer1_rgb, self.layer2_rgb, 
+                        self.layer0_hei, self.layer1_hei, self.layer2_hei,
+                        self.layer3, self.layer4]
+            for layer in fixlist:
+                for param in layer.parameters():
+                    param.requires_grad = False
 
     def forward(self, x, vel=None):
         '''
@@ -127,7 +135,7 @@ class TwoHeadCostResNet(nn.Module):
 if __name__ == "__main__":
     import time
     model = CostResNet(8, 1)
-    model = TwoHeadCostResNet(3, 5, 1, velinputlen=16, config=1)
+    model = TwoHeadCostResNet(3, 5, 1, velinputlen=16, config=1, finetune=True)
     model.cuda()
     # print(model)
 

@@ -105,6 +105,10 @@ def get_args():
     parser.add_argument('--out-vid-file', default='',
                         help='name of the output video file in the test-traj mode')
 
+    parser.add_argument('--finetune', action='store_true', default=False,
+                        help='finetune the last few layers (default: False)')
+
+
     args = parser.parse_args()
 
     return args
