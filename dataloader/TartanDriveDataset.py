@@ -293,7 +293,8 @@ class TartanCostDataset(Dataset):
         elif trajstr.startswith('2022_traj') or trajstr.startswith('20220531'):
             new_odom = True
         else:
-            assert False, "Unsupported trajectory {}".format(trajstr)
+            new_odom = True
+            # print("Unsupported trajectory {}".format(trajstr))#assert False, "Unsupported trajectory {}".format(trajstr)
 
         # print(trajstr, new_odom)
         sample = {}
@@ -475,6 +476,9 @@ if __name__ == '__main__':
     framelistfile = 'data/local_test.txt'
     datarootdir = '/cairo/arl_bag_files/SARA/test_loader/2022_traj'
 
+    framelistfile = 'data/arl_local.txt'
+    datarootdir = '/cairo/arl_bag_files/sara_traj'
+
     datatypes = "heightmap,rgbmap,odom,patches,cost,vels" #"img0,img1,imgc,disp0,heightmap,rgbmap,cmd,odom,imu"
     modalitylens = [1,1,10,10,10,10] # [10,10,10,10,10,10,10,10,100]
     datatypes = "heightmap,rgbmap,odom,patches" #"img0,img1,imgc,disp0,heightmap,rgbmap,cmd,odom,imu"
@@ -507,7 +511,7 @@ if __name__ == '__main__':
     # get_coverage_path(map_metadata, stride=0.2, crop_size=crop_size)
 
     stride = 2
-    skip = 0
+    skip = 1
     dataset = TartanCostDataset(framelistfile, \
                             map_metadata=map_metadata,
                             crop_params=crop_params,
@@ -533,7 +537,7 @@ if __name__ == '__main__':
     mean = np.array([0.485, 0.456, 0.406], dtype=np.float32).reshape(1,1,3)
     std = np.array([0.229, 0.224, 0.225], dtype=np.float32).reshape(1,1,3)
 
-    dataloader = DataLoader(dataset, batch_size=batch, shuffle=True, num_workers=workernum)
+    dataloader = DataLoader(dataset, batch_size=batch, shuffle=False, num_workers=workernum)
     dataiter = iter(dataloader)
     while True:
         starttime = time.time()

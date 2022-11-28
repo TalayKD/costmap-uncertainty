@@ -18,8 +18,10 @@ def extract_good_seqs(good_mask):
 
 def split_trajectory_based_on_score_and_cost():
     # rootdir = '/project/learningphysics/tartandrive_trajs'
-    rootdir = '/project/learningphysics/2022_traj'
+    # rootdir = '/project/learningphysics/2022_traj'
     # rootdir = '/cairo/arl_bag_files/SARA/2022_05_31_trajs'
+    rootdir = '/project/learningphysics/arl_20220922_traj'
+    # rootdir = '/cairo/arl_bag_files/sara_traj'
 
     rootfolder = rootdir.split('/')[-1]
     trajlist = listdir(rootdir)
@@ -28,10 +30,10 @@ def split_trajectory_based_on_score_and_cost():
     print("Find {} trajectories".format(len(trajlist)))
 
     outputfilelist = [
-        'cost_high', 
-        'cost_mid',
-        'cost_low',
-        'cost_zero'
+        'arl_cost_high', 
+        'arl_cost_mid',
+        'arl_cost_low',
+        'arl_cost_zero'
     ]
     costrangelist = [
         [0.5, 1.0],
@@ -42,8 +44,8 @@ def split_trajectory_based_on_score_and_cost():
 
     costfolder = 'cost2'
     tartanvofolder = 'tartanvo_odom'
-    ate_thresh = 3.0
-    cropnum = 10 # write this number of frame more at the end of each seq
+    ate_thresh = 0.5 # 3.0
+    cropnum = 20 # write this number of frame more at the end of each seq
 
     total_good_frames = 0
     for outputfile, costrange in zip(outputfilelist, costrangelist):
