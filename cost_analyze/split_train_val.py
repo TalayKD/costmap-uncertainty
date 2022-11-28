@@ -45,6 +45,19 @@ file_balance = {
 outputfile = 'datafile/combine_train_crop1.txt'
 outputfile_val = 'datafile/combine_test_crop1.txt'
 
+# warthog5 arl_20220922
+test_traj_list = [
+]
+
+file_balance = {
+    'datafile/arl_cost_high_arl_20220922_traj_crop20_score0.5.txt': 8,
+    'datafile/arl_cost_mid_arl_20220922_traj_crop20_score0.5.txt': 8,
+    'datafile/arl_cost_low_arl_20220922_traj_crop20_score0.5.txt': 4,
+    'datafile/arl_cost_zero_arl_20220922_traj_crop20_score0.5.txt': 1,
+}
+
+outputfile = 'datafile/arl_combine_train_crop20.txt'
+outputfile_val = 'datafile/arl_combine_test_crop20.txt'
 
 def parse_inputfile(inputfile):
     '''
