@@ -42,7 +42,7 @@ class TartanCostDataset(Dataset):
         frame_skip = 0, \
         frame_stride = 1, \
         new_odom_flag = False, \
-        coverage = False):
+        data_augment = False):
 
         super(TartanCostDataset, self).__init__()
         self.framelistfile = framelistfile
@@ -54,7 +54,7 @@ class TartanCostDataset(Dataset):
         self.frame_skip = frame_skip # sample not consequtively, skip a few frames within a sequences
         self.frame_stride = frame_stride # sample less sequence, skip a few frames between two sequences 
         self.new_odom_flag = new_odom_flag # somehow, the odom axis of tartandrive is different from the odom axis in recent bagfiles
-        self.coverage = coverage
+        self.data_augment = data_augment
 
         self.datatypelist = datatypes.split(',')
         self.modalitylenlist = modalitylens
@@ -309,7 +309,8 @@ class TartanCostDataset(Dataset):
                 if datatype == 'heightmap': 
                     datalist = self.filter_add_mask(datalist) # filter the very large and small numbers, add a mask channel
                 if datatype == 'rgbmap':
-                    datalist = self.random_hsv(datalist)
+                    if self.data_augment:
+                        datalist = self.random_hsv(datalist)
                     datalist = self.normalize_rgbmap(datalist) 
                 sample[datatype] = datalist
             elif datatype == 'odom':
@@ -338,7 +339,7 @@ class TartanCostDataset(Dataset):
             assert datalen <= datalen_odom, "Data length error, odom should be more than patches!"
 
             patcheslist, masks = self.get_crops(sample["heightmap"], sample["rgbmap"], sample["odom"], 
-                                                self.map_metadata, self.crop_params, coverage=self.coverage, new_odom=new_odom)
+                                                self.map_metadata, self.crop_params, new_odom=new_odom)
             sample["patches"] = patcheslist
             sample["masks"] = masks
 
@@ -515,7 +516,7 @@ if __name__ == '__main__':
                             modalitylens = modalitylens, \
                             transform=None, \
                             imu_freq = 10, \
-                            frame_skip = skip, frame_stride=stride, new_odom_flag=False, coverage=False)
+                            frame_skip = skip, frame_stride=stride, new_odom_flag=False)
     print('Dataset length: ',len(dataset))
 
     # # test the speed

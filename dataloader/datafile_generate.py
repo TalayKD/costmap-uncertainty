@@ -82,5 +82,43 @@ def bag20210910_23():
     write_datafile('20210910_23', trajindlist, f)
     f.close()
 
+def arl_local():
+    dataset_dir = '/cairo/arl_bag_files/sara_traj'
+    datafile = '/home/amigo/workspace/pytorch/ss_costmap/data/arl_local.txt'
+    # trajlist = enumerate_trajs(dataset_dir)
+    trajlist = ['uniform_gravel_low_20220922']
+    f = open(datafile, 'w')
+    for trajdir in trajlist:
+        trajindlist = process_traj(join(dataset_dir, trajdir))
+        write_datafile(trajdir, trajindlist, f)
+    f.close()
+
+def arl():
+    dataset_dir = '/project/learningphysics/arl_20220922_traj'
+    datafile = '/home/amigo/workspace/pytorch/ss_costmap/data/arl_20220922.txt'
+    # trajlist = enumerate_trajs(dataset_dir)
+    trajlist = [
+        'flat_loop_long_run',
+        'smooth_dirt_high',
+        'smooth_dirt_low',
+        'smooth_dirt_mid',
+        'uniform_gravel_high',
+        'uniform_gravel_low_0',
+        'uniform_gravel_low_1',
+        'vegetation_high',
+        'vegetation_low',
+        'vegetation_mid_1',
+        'woods_hill_loop_high',
+        'woods_hill_loop_low_2',
+        'woods_hill_loop_mid',
+        'woods_logs_slopes_long',
+        'woods_loop_low',
+    ]
+    f = open(datafile, 'w')
+    for trajdir in trajlist:
+        trajindlist = process_traj(join(dataset_dir, trajdir))
+        write_datafile(trajdir, trajindlist, f)
+    f.close()
+
 if __name__=="__main__":
-    bag20210910_23()
+    arl()

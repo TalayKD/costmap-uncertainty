@@ -123,7 +123,8 @@ class TrainCostmap(TorchFlow.TorchFlow):
                                 modalitylens = modalitylens, \
                                 transform=None, \
                                 imu_freq = 10, \
-                                frame_skip = skip, frame_stride=stride, new_odom_flag=False)
+                                frame_skip = skip, frame_stride=stride, \
+                                new_odom_flag=False, data_augment=True)
             self.trainDataloader = DataLoader(trainDataset, batch_size=args.batch_size, shuffle=True, num_workers=args.worker_num)
             self.trainDataiter = iter(self.trainDataloader)
 
@@ -147,7 +148,7 @@ class TrainCostmap(TorchFlow.TorchFlow):
                                 transform=None, \
                                 imu_freq = 10, \
                                 frame_skip = 0, frame_stride=1, 
-                                new_odom_flag=False)
+                                new_odom_flag=False, data_augment=False)
             test_shuffle = False
             cropstide = 0.4 # m
             self.pathlist = get_coverage_path(map_metadata, cropstide, crop_params['crop_size'])
@@ -164,7 +165,8 @@ class TrainCostmap(TorchFlow.TorchFlow):
                                 modalitylens = modalitylens, \
                                 transform=None, \
                                 imu_freq = 10, \
-                                frame_skip = skip, frame_stride=stride, new_odom_flag=False)
+                                frame_skip = skip, frame_stride=stride, \
+                                new_odom_flag=False, data_augment=True)
             test_shuffle = True
 
         self.testDataloader = DataLoader(testDataset, batch_size=args.test_batch_size, shuffle=test_shuffle, num_workers=args.worker_num)
