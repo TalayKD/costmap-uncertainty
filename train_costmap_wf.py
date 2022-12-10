@@ -41,7 +41,7 @@ def denormalize_vis_heightmap(heightmap):
     # heightmap: c x H x W
     # denormalize the heightmap
     heightmap_np = heightmap.transpose(1,2,0)
-    heightmap_np = np.clip(heightmap_np[:,:,2] * 25, 0 ,255)
+    heightmap_np = np.clip((heightmap_np[:,:,2]+1) * 25, 0 ,255)
     heightmap_np = heightmap_np.astype(np.uint8)
     heightmap_vis = cv2.applyColorMap(heightmap_np, cv2.COLORMAP_JET)
     return heightmap_vis
@@ -143,7 +143,7 @@ class TrainCostmap(TorchFlow.TorchFlow):
                                 map_metadata=map_metadata,
                                 crop_params=crop_params,
                                 dataroot= datarootdir, \
-                                datatypes = "heightmap,rgbmap,imgc", \
+                                datatypes = "heightmap,rgbmap,img0", \
                                 modalitylens = [1,1,1], \
                                 transform=None, \
                                 imu_freq = 10, \
@@ -216,13 +216,16 @@ class TrainCostmap(TorchFlow.TorchFlow):
         # import ipdb;ipdb.set_trace()
 
         patches = sample['patches'] # N x M x 8 x H x W
-        targetcost = sample['cost'] # N x M 
-        vels = sample['vels'] # N x M x 2
+        targetcost = sample['cost'] # N x M or N x M x K
+        vels = sample['vels'] # N x M x 2 or N x M x K x 2
         # patches = torch.rand((vels.shape[0], vels.shape[1], 8, 224, 224))
-
-        input_tensor = patches.view((-1,) + patches.shape[2:] ).cuda()
-        vels_tensor = vels.view(-1,2).cuda()
-        target_tensor = targetcost.view(-1).cuda()
+        batchsize = patches.shape[0]
+        patchsize = patches.shape[1]
+        batchcombine = batchsize*patchsize
+        
+        input_tensor = patches.view((batchcombine,) + patches.shape[2:] ).cuda()
+        vels_tensor = vels.view((batchcombine,) + vels.shape[2:]).cuda()
+        target_tensor = targetcost.view((batchcombine,) + targetcost.shape[2:]).cuda()
 
         # # filter the patch based on valid map pixel number
         # input_tensor, vels_tensor, target_tensor = self.filter_valid_num(input_tensor, vels_tensor, target_tensor)
@@ -230,8 +233,8 @@ class TrainCostmap(TorchFlow.TorchFlow):
         #     return None, None
 
         output = self.costnet(input_tensor,vels_tensor)
-
         loss = self.criterion(output, target_tensor)
+        output = output.view((batchsize, patchsize) + output.shape[1:] )
 
         return loss, output
 
@@ -327,42 +330,42 @@ class TrainCostmap(TorchFlow.TorchFlow):
 
         rgbmap = sample['rgbmap']
         heightmap = sample['heightmap']
-
-        assert rgbmap.shape[0] == 1, 'when test_traj, test-batch-size should be 1'
+        batchsize = rgbmap.shape[0]
+        assert batchsize == 1, 'when test_traj, test-batch-size should be 1'
         maps = torch.cat((rgbmap[0][0], heightmap[0][0]), dim=0) # 8 x H x W
 
-        costlist = []
-        for vel in [2.0, 4.0 ,6.0, 8.0]:
-            outputlist = []
-            for k in range(0, self.patchnum, maxpatch_size):
-                endind = min(maxpatch_size+k, self.patchnum)
-                subsample = {} 
-                patches = []
-                for w in range(k, endind): 
-                    patchloc = self.pathlist[w]
-                    patch = maps[:, patchloc[0]:patchloc[2], patchloc[1]:patchloc[3]]
-                    patches.append(patch) # F.interpolate(output[0], scale_factor=4, mode='bilinear')
-                # import ipdb;ipdb.set_trace()
-                patches = torch.stack(patches, dim=0)
-                patches = F.interpolate(patches, scale_factor=self.scale_factor)
-                subsample['patches'] = patches.unsqueeze(0)
-                subpatchsize = endind - k
-                subsample['cost'] = torch.zeros((1, subpatchsize), dtype=torch.float32) # N x M 
-                subsample['vels'] = torch.zeros((1, subpatchsize, 2), dtype=torch.float32) # N x M x 2
-                subsample['vels'][:,:,0] = vel / 5.0 
+        outputlist = []
+        vels = torch.tensor([2.0, 4.0 ,6.0, 8.0], dtype=torch.float32).view(1,1,4)
+        velnum = vels.shape[-1]
+        for k in range(0, self.patchnum, maxpatch_size):
+            endind = min(maxpatch_size+k, self.patchnum)
+            subsample = {} 
+            patches = []
+            for w in range(k, endind): 
+                patchloc = self.pathlist[w]
+                patch = maps[:, patchloc[0]:patchloc[2], patchloc[1]:patchloc[3]]
+                patches.append(patch) # F.interpolate(output[0], scale_factor=4, mode='bilinear')
+            # import ipdb;ipdb.set_trace()
+            patches = torch.stack(patches, dim=0)
+            patches = F.interpolate(patches, scale_factor=self.scale_factor)
+            subsample['patches'] = patches.unsqueeze(0)
+            subpatchsize = endind - k
+            subsample['cost'] = torch.zeros((1, subpatchsize, velnum), dtype=torch.float32) # N x M x K
+            subsample['vels'] = torch.zeros((1, subpatchsize, velnum, 2), dtype=torch.float32) # N x M x K x 2
+            subsample['vels'][:,:,:,0] = vels / 5.0 
 
-                with torch.no_grad():
-                    _, output = self.forward(subsample)
-                outputlist.extend(output.cpu().numpy())
-            costlist.append(np.array(outputlist))
+            with torch.no_grad():
+                _, output = self.forward(subsample) # output N x M x K
+            outputlist.append(output.cpu().numpy().reshape(batchsize, subpatchsize, velnum))
+        costlist = np.concatenate(outputlist, axis=1) # N x M x K
             
         print("Test {}".format(self.test_count))
-        visrgbmap = sample['rgbmap'][0][0].numpy()
-        visheightmap = sample['heightmap'][0][0].numpy()
-        visfpv = sample['imgc'][0][0].numpy()
+        visrgbmap = rgbmap[0][0].numpy()
+        visheightmap = heightmap[0][0].numpy()
+        visfpv = sample['img0'][0][0].numpy()
         # vid.write(disp_color)
         sample = None
-        return costlist, visrgbmap, visheightmap, visfpv
+        return costlist[0], visrgbmap, visheightmap, visfpv
 
     def finalize(self):
         super(TrainCostmap, self).finalize()
@@ -375,7 +378,7 @@ class TrainCostmap(TorchFlow.TorchFlow):
 
 def visualize_output(outputlist, visrgbmap, visheightmap, visfpv): 
     '''
-    outputlist: 4 x ( H x W ) cost estimation
+    outputlist: ( H x W ) x 4 cost estimation
     visrgbmap: H x W x 3 
     visheightmap: H x W 
     visfpv: H x W x 3
@@ -397,7 +400,7 @@ def visualize_output(outputlist, visrgbmap, visheightmap, visfpv):
     vellist = ['Vel='+str(k)+' m/s' for k in [2,4,6,8]]
     # import ipdb;ipdb.set_trace()
     for k in range(4): # hard code
-        output = outputlist[k]
+        output = outputlist[:,k]
     # save the file for debug
         patchsize = len(output)                
         mapsize = int(sqrt(patchsize))
