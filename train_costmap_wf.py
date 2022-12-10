@@ -139,11 +139,12 @@ class TrainCostmap(TorchFlow.TorchFlow):
         #     print('Sample load time: {}'.format(time.time() - starttime))
 
         if args.test_traj: # evaluate on the whole map
+            self.fpvimg = 'img0' # for warthog it's 'img0', yamaha 'imgc
             testDataset = TartanCostDataset(testframelistfile, \
                                 map_metadata=map_metadata,
                                 crop_params=crop_params,
                                 dataroot= datarootdir, \
-                                datatypes = "heightmap,rgbmap,img0", \
+                                datatypes = "heightmap,rgbmap,"+self.fpvimg, \
                                 modalitylens = [1,1,1], \
                                 transform=None, \
                                 imu_freq = 10, \
@@ -322,7 +323,7 @@ class TrainCostmap(TorchFlow.TorchFlow):
         self.costnet.eval()
 
         try:
-            sample = self.testDataiter.next()
+            sample = next(self.testDataiter)
         except StopIteration:
             return None, None, None, None 
             # self.testDataiter = iter(self.testDataloader)
@@ -362,7 +363,7 @@ class TrainCostmap(TorchFlow.TorchFlow):
         print("Test {}".format(self.test_count))
         visrgbmap = rgbmap[0][0].numpy()
         visheightmap = heightmap[0][0].numpy()
-        visfpv = sample['img0'][0][0].numpy()
+        visfpv = sample[self.fpvimg][0][0].numpy()
         # vid.write(disp_color)
         sample = None
         return costlist[0], visrgbmap, visheightmap, visfpv
@@ -441,8 +442,8 @@ if __name__ == '__main__':
                 if outputlist is None:
                     break
                 visimg = visualize_output(outputlist, visrgbmap, visheightmap, visfpv)
-                cv2.imshow('img', visimg)
-                cv2.waitKey(10)
+                # cv2.imshow('img', visimg)
+                # cv2.waitKey(10)
                 fout.write(visimg)
 
                 # if trainCostmap.test_count >= args.test_num:
