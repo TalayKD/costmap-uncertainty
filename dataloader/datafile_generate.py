@@ -95,7 +95,7 @@ def arl_local():
 
 def arl():
     dataset_dir = '/project/learningphysics/arl_20220922_traj'
-    datafile = '/home/amigo/workspace/pytorch/ss_costmap/data/arl_20220922.txt'
+    datafile = '../data/arl_20220922.txt'
     # trajlist = enumerate_trajs(dataset_dir)
     trajlist = [
         'flat_loop_long_run',

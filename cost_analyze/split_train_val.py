@@ -47,6 +47,8 @@ outputfile_val = 'datafile/combine_test_crop1.txt'
 
 # warthog5 arl_20220922
 test_traj_list = [
+    'smooth_dirt_low',
+    'uniform_gravel_low_0',
 ]
 
 file_balance = {

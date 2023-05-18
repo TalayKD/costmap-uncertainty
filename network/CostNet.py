@@ -94,7 +94,7 @@ class TwoHeadCostResNet(nn.Module):
             fixlist = [self.firstconv_rgb, self.firstconv_hei, 
                         self.layer0_rgb, self.layer1_rgb, self.layer2_rgb, 
                         self.layer0_hei, self.layer1_hei, self.layer2_hei,
-                        self.layer3, self.layer4]
+                        self.layer3, self.layer4] # , self.lastconv, fc1
             for layer in fixlist:
                 for param in layer.parameters():
                     param.requires_grad = False
@@ -102,7 +102,11 @@ class TwoHeadCostResNet(nn.Module):
     def forward(self, x, vel=None):
         '''
         x1: N x c x h x w
-        vel: N x 2
+        vel: N x 2 or N x k x 2
+        if vel is N x k x 2, it outputs multiple costs for multiple speeds
+
+        return N     if vel is N x 2
+               N x k if vel is N x k x 2
         '''
         x1 = x[:,:self.inputnum1,:,:] 
         x2 = x[:,self.inputnum1:,:,:]
@@ -122,13 +126,21 @@ class TwoHeadCostResNet(nn.Module):
         x = self.layer3(x)
         x = self.layer4(x)
         x = self.lastconv(x)
-        x = x.view(x.shape[0], -1)
+        x = x.view(x.shape[0], -1) # N x c
 
         # import ipdb;ipdb.set_trace()
         if vel is not None:
-            vel = vel.repeat(1,self.velinputlen//2)
-            x = torch.cat((x,vel),dim=-1)
-        x = self.cost_out(x)
+            if len(vel.shape) == 2: # N x 2
+                vel = vel.repeat(1,self.velinputlen//2)
+                x = torch.cat((x,vel),dim=-1)
+            elif len(vel.shape) == 3:
+                velnum = vel.shape[1]
+                vel = vel.repeat(1, 1, self.velinputlen//2)
+                x = x.unsqueeze(1).repeat(1, velnum, 1) # N x k x c
+                x = torch.cat((x,vel), dim=-1)
+            else:
+                print("unsupport vel dimention {}".format(vel.shape))
+        x = self.cost_out(x) # N x 1
         x = x.squeeze(-1)
         return x
 
@@ -144,8 +156,9 @@ if __name__ == "__main__":
     for batch in batchlist:
         # batch = 10  
         channel = 8
+        velnum = 1
         imgTensor = torch.rand(batch, channel, 224, 224).cuda()
-        velTensor = torch.rand(batch, 2).cuda()
+        velTensor = torch.rand(batch, velnum, 2).cuda()
 
         output = model(imgTensor,velTensor)
         # output = model({"patches": imgTensor, "fourier_vels": velTensor})

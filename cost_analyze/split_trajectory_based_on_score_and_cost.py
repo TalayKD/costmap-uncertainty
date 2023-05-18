@@ -46,6 +46,10 @@ def split_trajectory_based_on_score_and_cost():
     tartanvofolder = 'tartanvo_odom'
     ate_thresh = 0.5 # 3.0
     cropnum = 20 # write this number of frame more at the end of each seq
+    startvel_thresh = 1.0
+    endvel_thresh = 0.2
+    filtervel_thresh = 0.1
+    filtervel_framenum_thresh = 10
 
     total_good_frames = 0
     for outputfile, costrange in zip(outputfilelist, costrangelist):
@@ -66,9 +70,10 @@ def split_trajectory_based_on_score_and_cost():
             motions = np.load(join(trajdir, tartanvofolder, 'motions.npy'))
             motions = np.concatenate((motions, motions[-1:,:])) # add one more frame  
             velx = motions[:,0] / 0.1 # hard coded
+
             ind = 0 
             while ind < trajlen:
-                if velx[ind] < 1:
+                if velx[ind] < startvel_thresh:
                     good_frames[ind] = False
                 else:
                     break
@@ -77,13 +82,25 @@ def split_trajectory_based_on_score_and_cost():
             # filter the ending zero vel and intervention
             ind = trajlen-1
             while ind >= 0:
-                if velx[ind] < 1:
+                if velx[ind] < endvel_thresh:
                     good_frames[ind] = False
                 else:
                     # delete a few more for intervention
                     good_frames[max(ind-19,0):ind+1] = False # hard coded
                     break
                 ind -= 1
+
+            # filter the zero vel in between whenever there is a long stop
+            ind = 0
+            stop_frames = 0
+            while ind < trajlen:
+                if velx[ind] < filtervel_thresh:
+                    stop_frames += 1
+                    if stop_frames > filtervel_framenum_thresh: 
+                        good_frames[ind] = False
+                else:
+                    stop_frames = 0
+                ind += 1
 
             # filter the cost range
             costs = np.load(join(trajdir, costfolder, 'cost.npy'))
