@@ -94,7 +94,7 @@ class TwoHeadCostResNet(nn.Module):
             fixlist = [self.firstconv_rgb, self.firstconv_hei, 
                         self.layer0_rgb, self.layer1_rgb, self.layer2_rgb, 
                         self.layer0_hei, self.layer1_hei, self.layer2_hei,
-                        self.layer3, self.layer4]
+                        self.layer3, self.layer4] # , self.lastconv, fc1
             for layer in fixlist:
                 for param in layer.parameters():
                     param.requires_grad = False

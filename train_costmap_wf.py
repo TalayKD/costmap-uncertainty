@@ -5,6 +5,7 @@
 # separate rgb and height encoders
 # (done) filter the crops
 # (done) filter out the bad trajectories in terms of mapping
+from unittest.mock import patch
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -78,7 +79,7 @@ class TrainCostmap(TorchFlow.TorchFlow):
             self.costnet = CostResNet(inputnum=8, outputnum=1,velinputlen=32)
         elif args.network ==2:
             from network.CostNet import TwoHeadCostResNet
-            self.costnet = TwoHeadCostResNet(inputnum1=3, inputnum2=5, outputnum=1,velinputlen=32, config=args.net_config)
+            self.costnet = TwoHeadCostResNet(inputnum1=3, inputnum2=5, outputnum=1,velinputlen=32, config=args.net_config, finetune=args.finetune)
 
         # import ipdb;ipdb.set_trace()
         if self.args.load_model:
@@ -148,10 +149,11 @@ class TrainCostmap(TorchFlow.TorchFlow):
                                 modalitylens = [1,1,1], \
                                 transform=None, \
                                 imu_freq = 10, \
-                                frame_skip = 0, frame_stride=1, 
+                                frame_skip = 0, frame_stride=3, 
                                 new_odom_flag=False, data_augment=False)
             test_shuffle = False
             cropstide = 0.4 # m
+            self.test_vel_list = [0.5,1,2,4] #[2,4,6,8] #[0.5,1,2,4]
             self.pathlist = get_coverage_path(map_metadata, cropstide, crop_params['crop_size'])
             self.patchnum = len(self.pathlist)
             self.scale_factor = [crop_params['output_size'][0]/(self.pathlist[0][2]-self.pathlist[0][0]), 
@@ -213,7 +215,18 @@ class TrainCostmap(TorchFlow.TorchFlow):
         mask = validnum > threshnum
         return input_tensor[mask,...], vels_tensor[mask,...], target_tensor[mask]
 
-    def forward(self, sample): 
+    def vis_patches(self, patches):
+        patches_numpy_list = []
+        plotstride = 2
+        for ind in range(0, len(patches), plotstride):
+            ppp = denormalize_vis_rgbmap(patches[ind][:3].numpy())
+            patches_numpy_list.append(ppp)
+        patchvis = np.concatenate(patches_numpy_list, axis=1)
+        # cv2.imshow('map',patchvis)
+        # cv2.waitKey(0)
+        cv2.imwrite('map'+str(self.count) + '.png', patchvis)
+
+    def forward(self, sample, mask=False): 
         # import ipdb;ipdb.set_trace()
 
         patches = sample['patches'] # N x M x 8 x H x W
@@ -224,18 +237,23 @@ class TrainCostmap(TorchFlow.TorchFlow):
         patchsize = patches.shape[1]
         batchcombine = batchsize*patchsize
         
+        # self.vis_patches(patches[0])
+
         input_tensor = patches.view((batchcombine,) + patches.shape[2:] ).cuda()
         vels_tensor = vels.view((batchcombine,) + vels.shape[2:]).cuda()
         target_tensor = targetcost.view((batchcombine,) + targetcost.shape[2:]).cuda()
 
-        # # filter the patch based on valid map pixel number
-        # input_tensor, vels_tensor, target_tensor = self.filter_valid_num(input_tensor, vels_tensor, target_tensor)
-        # if len(input_tensor) == 0:
-        #     return None, None
+        # filter the patch based on valid map pixel number
+        if mask:
+            input_tensor, vels_tensor, target_tensor = self.filter_valid_num(input_tensor, vels_tensor, target_tensor)
+            self.logger.info("Filter: {} -> {}".format(batchcombine, input_tensor.shape[0]))
+            if len(input_tensor) == 0:
+                return None, None
 
         output = self.costnet(input_tensor,vels_tensor)
         loss = self.criterion(output, target_tensor)
-        output = output.view((batchsize, patchsize) + output.shape[1:] )
+        if not mask: # hacking, assume the mask=False in testing! 
+            output = output.view((batchsize, patchsize) + output.shape[1:] )
 
         return loss, output
 
@@ -258,7 +276,13 @@ class TrainCostmap(TorchFlow.TorchFlow):
         loadtime = time.time()
 
         # import ipdb;ipdb.set_trace()
-        loss, _ = self.forward(sample)
+        loss, _ = self.forward(sample, mask=False)
+
+        if loss is None:
+            self.count -= 1
+            sample = None
+            return 
+
         self.costOptimizer.zero_grad()
         loss.backward()
         self.costOptimizer.step()
@@ -336,7 +360,7 @@ class TrainCostmap(TorchFlow.TorchFlow):
         maps = torch.cat((rgbmap[0][0], heightmap[0][0]), dim=0) # 8 x H x W
 
         outputlist = []
-        vels = torch.tensor([2.0, 4.0 ,6.0, 8.0], dtype=torch.float32).view(1,1,4)
+        vels = torch.tensor(self.test_vel_list, dtype=torch.float32).view(1,1,4)
         velnum = vels.shape[-1]
         for k in range(0, self.patchnum, maxpatch_size):
             endind = min(maxpatch_size+k, self.patchnum)
@@ -377,7 +401,7 @@ class TrainCostmap(TorchFlow.TorchFlow):
             self.logger.info('The average loss values:')
             self.logger.info('%.4f \t %.4f ' % (self.AV['loss'].last_avg(100), self.AV['test_loss'].last_avg(100)))
 
-def visualize_output(outputlist, visrgbmap, visheightmap, visfpv): 
+def visualize_output(outputlist, visrgbmap, visheightmap, visfpv, test_vel_list): 
     '''
     outputlist: ( H x W ) x 4 cost estimation
     visrgbmap: H x W x 3 
@@ -398,7 +422,7 @@ def visualize_output(outputlist, visrgbmap, visheightmap, visfpv):
     mapsvis = cv2.flip(mapsvis, -1)
 
     costvislist, costoverlaylist = [], []
-    vellist = ['Vel='+str(k)+' m/s' for k in [2,4,6,8]]
+    vellist = ['Vel='+str(k)+' m/s' for k in test_vel_list]
     # import ipdb;ipdb.set_trace()
     for k in range(4): # hard code
         output = outputlist[:,k]
@@ -441,7 +465,7 @@ if __name__ == '__main__':
                 outputlist, visrgbmap, visheightmap, visfpv = trainCostmap.test_traj()
                 if outputlist is None:
                     break
-                visimg = visualize_output(outputlist, visrgbmap, visheightmap, visfpv)
+                visimg = visualize_output(outputlist, visrgbmap, visheightmap, visfpv, trainCostmap.test_vel_list)
                 # cv2.imshow('img', visimg)
                 # cv2.waitKey(10)
                 fout.write(visimg)
