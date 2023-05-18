@@ -2,7 +2,7 @@
 # (done) close crops + distant crops
 # (done) + vel input
 # + patch distance
-# separate rgb and height encoders
+# (done) separate rgb and height encoders
 # (done) filter the crops
 # (done) filter out the bad trajectories in terms of mapping
 import torch
