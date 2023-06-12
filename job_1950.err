@@ -1,0 +1,38 @@
+INFO:    underlay of /usr/bin/nvidia-smi required more than 50 (723) bind mounts
+INFO: WorkFlow created.
+INFO: working_dir: ./, exp_prefix: t_8_, lr: 0.001, lr_decay: True, batch_size: 200, test_batch_size: 200, worker_num: 8, train_step: 5000, snapshot: 1250, image_width: 224, image_height: 224, hsv_rand: 0.0, rand_blur: 0.0, data_file: combine_train_crop10.txt, val_file: combine_test_crop10.txt, load_model: False, model_name: , test: False, test_traj: False, test_num: 10, test_interval: 100, print_interval: 1, plot_interval: 100, network: 2, net_config: 0, no_data_augment: False, multi_gpu: 1, platform: local, stride: 3, skip: 1, crop_num: 10, data_root: /project/learningphysics, test_vel: 0.0, out_vid_file: , finetune: False, 
+INFO: AVP initialized.
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.8/dist-packages/torch/utils/data/dataloader.py", line 1133, in _try_get_data
+    data = self._data_queue.get(timeout=timeout)
+  File "/usr/lib/python3.8/multiprocessing/queues.py", line 107, in get
+    if not self._poll(timeout):
+  File "/usr/lib/python3.8/multiprocessing/connection.py", line 257, in poll
+    return self._poll(timeout)
+  File "/usr/lib/python3.8/multiprocessing/connection.py", line 424, in _poll
+    r = wait([self], timeout)
+  File "/usr/lib/python3.8/multiprocessing/connection.py", line 931, in wait
+    ready = selector.select(timeout)
+  File "/usr/lib/python3.8/selectors.py", line 415, in select
+    fd_event_list = self._selector.poll(timeout)
+  File "/usr/local/lib/python3.8/dist-packages/torch/utils/data/_utils/signal_handling.py", line 66, in handler
+    _error_if_any_worker_fails()
+RuntimeError: DataLoader worker (pid 2564872) is killed by signal: Killed. 
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/data2/datasets/tkondhor/code/ss_costmap/train_costmap_wf.py", line 493, in <module>
+    trainCostmap.train()
+  File "/data2/datasets/tkondhor/code/ss_costmap/train_costmap_wf.py", line 270, in train
+    sample = next(self.trainDataiter)
+  File "/usr/local/lib/python3.8/dist-packages/torch/utils/data/dataloader.py", line 634, in __next__
+    data = self._next_data()
+  File "/usr/local/lib/python3.8/dist-packages/torch/utils/data/dataloader.py", line 1329, in _next_data
+    idx, data = self._get_data()
+  File "/usr/local/lib/python3.8/dist-packages/torch/utils/data/dataloader.py", line 1295, in _get_data
+    success, data = self._try_get_data()
+  File "/usr/local/lib/python3.8/dist-packages/torch/utils/data/dataloader.py", line 1146, in _try_get_data
+    raise RuntimeError('DataLoader worker (pid(s) {}) exited unexpectedly'.format(pids_str)) from e
+RuntimeError: DataLoader worker (pid(s) 2564872) exited unexpectedly
+slurmstepd: error: Detected 2 oom-kill event(s) in StepId=1950.batch cgroup. Some of your processes may have been killed by the cgroup out-of-memory handler.

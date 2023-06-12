@@ -12,7 +12,7 @@ import torch.optim as optim
 from torch.utils.data import DataLoader
 import torch.nn.functional as F
 
-from workflow import WorkFlow, TorchFlow
+from WorkFlow.workflow import WorkFlow, TorchFlow
 from arguments import get_args
 import numpy as np
 
