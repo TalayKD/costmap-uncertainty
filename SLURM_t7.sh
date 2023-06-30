@@ -4,10 +4,10 @@
 
 #SBATCH -n 8
 #SBATCH -N 1
-#SBATCH -t 5-00:00 # D-HH:MM
-#SBATCH -p titan-gpu
+#SBATCH -t 4-00:00 # D-HH:MM
+#SBATCH -p a100-gpu-full
 #SBATCH --gres=gpu:2
-#SBATCH --mem=124G
+#SBATCH --mem=256G
 #SBATCH --job-name=t_7
 #SBATCH -o job_%j.out
 #SBATCH -e job_%j.err
