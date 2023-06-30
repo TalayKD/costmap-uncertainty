@@ -107,7 +107,18 @@ def get_args():
 
     parser.add_argument('--finetune', action='store_true', default=False,
                         help='finetune the last few layers (default: False)')
-
+    
+    parser.add_argument('--ensemble', action='store_true', default=False,
+                        help='creates an ensemble of models instead of just one (default: False)')
+    
+    parser.add_argument('--ensemble-length', type=int, default=5,
+                        help='number of models in the ensemble')
+    
+    parser.add_argument('--ensemble-model-names', default = [''], nargs='*',
+                        help='names of all the models to be loaded in the ensemble')
+    
+    parser.add_argument('--test-traj-uncertainty', action='store_true', default=False,
+                        help='test trajectory with uncertainty estimation(default: False)')
 
     args = parser.parse_args()
 

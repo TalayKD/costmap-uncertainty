@@ -2,7 +2,7 @@ IntPlot/
 logdata/
 models/
 resimg/
-workflow/
+Workflow/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
@@ -133,3 +133,15 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+# All the job .err and .out files
+*.err
+*.out
+
+# All the mp4 video files
+*.mp4
+
+# All the shell scripts
+*.sh
+
+balance_data.py
