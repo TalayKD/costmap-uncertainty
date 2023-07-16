@@ -83,10 +83,14 @@ class TrainCostmap(TorchFlow.TorchFlow):
                     if (e == 0):
                         from network.CostNet import CostResNet
                     self.costnet[e] = CostResNet(inputnum=8, outputnum=1,velinputlen=32)
-                elif args.network ==2:
+                elif args.network == 2:
                     if (e == 0):
                         from network.CostNet import TwoHeadCostResNet
                     self.costnet[e] = TwoHeadCostResNet(inputnum1=3, inputnum2=5, outputnum=1,velinputlen=32, config=args.net_config, finetune=args.finetune)
+                elif args.network == 3:
+                    if (e == 0):
+                        from network.CostNet import AleatoricTwoHeadCostResNet
+                    self.costnet[e] = AleatoricTwoHeadCostResNet(inputnum1=3, inputnum2=5, outputnum=1,velinputlen=32, config=args.net_config, finetune=args.finetune)
 
                 # load models
                 if self.args.load_model:
@@ -109,6 +113,9 @@ class TrainCostmap(TorchFlow.TorchFlow):
             elif args.network ==2:
                 from network.CostNet import TwoHeadCostResNet
                 self.costnet = TwoHeadCostResNet(inputnum1=3, inputnum2=5, outputnum=1,velinputlen=32, config=args.net_config, finetune=args.finetune)
+            elif args.network == 3:
+                from network.CostNet import AleatoricTwoHeadCostResNet
+                self.costnet = AleatoricTwoHeadCostResNet(inputnum1=3, inputnum2=5, outputnum=1,velinputlen=32, config=args.net_config, finetune=args.finetune)
 
             # import ipdb;ipdb.set_trace()
             if self.args.load_model:
@@ -144,7 +151,7 @@ class TrainCostmap(TorchFlow.TorchFlow):
         datarootdir = args.data_root
         datatypes = "heightmap,rgbmap,odom,patches,cost,vels" # "heightmap"
         modalitylens = [1,1,cropnum,cropnum,cropnum,cropnum] #[1]
-        if not (args.test or args.test_traj or args.test_traj_uncertainty):
+        if not (args.test or args.test_traj or args.test_traj_ensemble):
             trainDataset = TartanCostDataset(framelistfile, \
                                 map_metadata=map_metadata,
                                 crop_params=crop_params,
@@ -155,7 +162,7 @@ class TrainCostmap(TorchFlow.TorchFlow):
                                 imu_freq = 10, \
                                 frame_skip = skip, frame_stride=stride, \
                                 new_odom_flag=False, data_augment=True)
-            self.trainDataloader = DataLoader(trainDataset, batch_size=args.batch_size, shuffle=True, num_workers=args.worker_num)
+            self.trainDataloader = DataLoader(trainDataset, batch_size=args.batch_size, shuffle=True, num_workers=args.worker_num, persistent_workers=True)
             self.trainDataiter = iter(self.trainDataloader)
 
         # while True:
@@ -168,7 +175,7 @@ class TrainCostmap(TorchFlow.TorchFlow):
         #         sample = next(self.trainDataiter)
         #     print('Sample load time: {}'.format(time.time() - starttime))
 
-        if args.test_traj or args.test_traj_uncertainty: # evaluate on the whole map possibly with uncertainty estimation
+        if args.test_traj or args.test_traj_ensemble: # evaluate on the whole map possibly with uncertainty estimation
             self.fpvimg = 'img0' # for warthog it's 'img0', yamaha 'imgc
             testDataset = TartanCostDataset(testframelistfile, \
                                 map_metadata=map_metadata,
@@ -201,11 +208,14 @@ class TrainCostmap(TorchFlow.TorchFlow):
                                 new_odom_flag=False, data_augment=True)
             test_shuffle = True
 
-        self.testDataloader = DataLoader(testDataset, batch_size=args.test_batch_size, shuffle=test_shuffle, num_workers=args.worker_num)
+        self.testDataloader = DataLoader(testDataset, batch_size=args.test_batch_size, shuffle=test_shuffle, num_workers=args.worker_num, persistent_workers=True)
         self.testDataiter = iter(self.testDataloader)
 
-        if not args.test_traj_uncertainty:
-            self.criterion = nn.L1Loss()
+        if not args.test_traj_ensemble:
+            if (args.network == 1 or args.network == 2):
+                self.criterion = nn.L1Loss()
+            elif (args.network == 3):
+                self.criterion = nn.GaussianNLLLoss()
             self.costOptimizer = optim.Adam(self.costnet.parameters(), lr = self.lr)
 
 
@@ -214,7 +224,14 @@ class TrainCostmap(TorchFlow.TorchFlow):
 
         self.AV['loss'].avgWidth = 100
         self.add_accumulated_value('test_loss', 1)
-        self.append_plotter("loss", ['loss', 'test_loss'], [True, False])
+
+        if (self.args.network == 3):
+            self.add_accumulated_value('control_loss', 1)
+            self.add_accumulated_value('control_test_loss', 1)
+            self.append_plotter("loss", ['loss', 'test_loss', 'control_loss', 'control_test_loss'], [True, False, False, False])
+
+        else:
+            self.append_plotter("loss", ['loss', 'test_loss'], [True, False])
 
         logstr = ''
         for param in self.args.__dict__.keys(): # record useful params in logfile 
@@ -287,6 +304,47 @@ class TrainCostmap(TorchFlow.TorchFlow):
 
         return loss, output
     
+
+    def forward_aleatoric(self, sample, mask=False): 
+        # import ipdb;ipdb.set_trace()
+
+        patches = sample['patches'] # N x M x 8 x H x W
+        targetcost = sample['cost'] # N x M or N x M x K
+        vels = sample['vels'] # N x M x 2 or N x M x K x 2
+        # patches = torch.rand((vels.shape[0], vels.shape[1], 8, 224, 224))
+        batchsize = patches.shape[0]
+        patchsize = patches.shape[1]
+        batchcombine = batchsize*patchsize
+        
+        # self.vis_patches(patches[0])
+
+        input_tensor = patches.view((batchcombine,) + patches.shape[2:] ).cuda()
+        vels_tensor = vels.view((batchcombine,) + vels.shape[2:]).cuda()
+        target_tensor = targetcost.view((batchcombine,) + targetcost.shape[2:]).cuda()
+
+        # filter the patch based on valid map pixel number
+        if mask:
+            input_tensor, vels_tensor, target_tensor = self.filter_valid_num(input_tensor, vels_tensor, target_tensor)
+            self.logger.info("Filter: {} -> {}".format(batchcombine, input_tensor.shape[0]))
+            if len(input_tensor) == 0:
+                return None, None, None
+
+        mu, sigma = self.costnet(input_tensor,vels_tensor) # mu is N x K
+
+        # print("Costnet forward complete")
+
+        loss = self.criterion(mu, target_tensor, sigma)
+
+        # print("Compute loss criterion complete")
+
+        if not mask: # hacking, assume the mask=False in testing! 
+            mu = mu.view((batchsize, patchsize) + mu.shape[1:] )    # mu is N x M x K
+            target_tensor = target_tensor.view((batchsize, patchsize) + target_tensor.shape[1:] )
+
+        loss_control = torch.mean(torch.abs(mu - target_tensor))
+
+        return loss, mu, sigma, loss_control
+    
     
     def forward_uncertainty(self, sample, costnet): 
         # import ipdb;ipdb.set_trace()
@@ -301,11 +359,17 @@ class TrainCostmap(TorchFlow.TorchFlow):
         input_tensor = patches.view((batchcombine,) + patches.shape[2:] ).cuda()
         vels_tensor = vels.view((batchcombine,) + vels.shape[2:]).cuda()
 
-        output = costnet(input_tensor,vels_tensor) # output is N x K
+        if (self.args.network == 1 or self.args.network == 2):
+            output = costnet(input_tensor, vels_tensor) # output is N x K
+            sigma = None
+
+        elif (self.args.network == 3):
+            output, sigma = costnet(input_tensor, vels_tensor)  # output is N x K, sigma is N x K
+            sigma = sigma.view((batchsize, patchsize) + sigma.shape[1:] )   # sigma is N x M x K
             
         output = output.view((batchsize, patchsize) + output.shape[1:] )    # output is N x M x K
 
-        return output
+        return output, sigma
 
     def train(self):
         super(TrainCostmap, self).train()
@@ -325,16 +389,34 @@ class TrainCostmap(TorchFlow.TorchFlow):
         loadtime = time.time()
 
         # import ipdb;ipdb.set_trace()
-        loss, _ = self.forward(sample, mask=False)
+
+        # print("Iter {}".format(self.count))
+
+        # print("Before forward ... ")
+
+        if (self.args.network == 1 or self.args.network == 2):
+            loss, output = self.forward(sample, mask=False)
+        elif (self.args.network == 3):
+            loss, mu, sigma, loss_control = self.forward_aleatoric(sample, mask=False)
+            loss_control_num = loss_control.item()
+        # loss = 0
+        # loss_control_num = 0
 
         if loss is None:
             self.count -= 1
             sample = None
             return 
+        
+        # print("Forward complete ... ")
 
         self.costOptimizer.zero_grad()
         loss.backward()
+
+        # print("Backward complete ... ")
+
         self.costOptimizer.step()
+
+        # print("Optimizer step complete ... ")
         lossnum = loss.item()
         # lossnum = 0.0 # for debug
 
@@ -342,6 +424,8 @@ class TrainCostmap(TorchFlow.TorchFlow):
 
         # import ipdb;ipdb.set_trace()
         self.AV['loss'].push_back(lossnum, self.count)
+        if (self.args.network == 3):
+            self.AV['control_loss'].push_back(loss_control_num, self.count)
 
         # update Learning Rate
         if self.args.lr_decay:
@@ -366,6 +450,8 @@ class TrainCostmap(TorchFlow.TorchFlow):
             self.dumpfiles()
         sample = None
 
+        # print("Iteration complete")
+
     def test(self):
         super(TrainCostmap, self).test()
         self.test_count += 1
@@ -378,11 +464,19 @@ class TrainCostmap(TorchFlow.TorchFlow):
 
         self.costnet.eval()
         with torch.no_grad():
-            loss, output = self.forward(sample)
+            if (self.args.network == 1 or self.args.network == 2):
+                loss, output = self.forward(sample, mask=False)
+            elif (self.args.network == 3):
+                loss, output, sigma, loss_control = self.forward_aleatoric(sample, mask=False)
+                loss_control_num = loss_control.item()
 
         lossnum = loss.item()
+        # loss_control_num = 0
         # lossnum = 0
         self.AV['test_loss'].push_back(lossnum, self.count)
+        if (self.args.network == 3):
+            self.AV['control_test_loss'].push_back(loss_control_num, self.count)
+        
 
         if self.test_count % self.args.print_interval == 0:
             self.logger.info("  TEST %s #%d - loss: %.4f "  % (self.args.exp_prefix[:-1], 
@@ -390,7 +484,7 @@ class TrainCostmap(TorchFlow.TorchFlow):
         sample = None
         return lossnum, output
     
-    def test_traj_uncertainty(self,maxpatch_size = 500):
+    def test_traj_ensemble(self,maxpatch_size = 500):
         super(TrainCostmap, self).test()
         self.test_count += 1
 
@@ -407,7 +501,7 @@ class TrainCostmap(TorchFlow.TorchFlow):
         rgbmap = sample['rgbmap']
         heightmap = sample['heightmap']
         batchsize = rgbmap.shape[0]
-        assert batchsize == 1, 'when test_traj_uncertainty, test-batch-size should be 1'
+        assert batchsize == 1, 'when test_traj_ensemble, test-batch-size should be 1'
         maps = torch.cat((rgbmap[0][0], heightmap[0][0]), dim=0) # 8 x H x W
 
         outputlist = []
@@ -431,10 +525,13 @@ class TrainCostmap(TorchFlow.TorchFlow):
             subsample['vels'][:,:,:,0] = vels / 5.0 
 
             ensemble_outputlist = []
+            ensemble_sigmalist = []
             for f in range(self.args.ensemble_length):
                 with torch.no_grad():
-                    ensemble_output = self.forward_uncertainty(subsample, self.costnet[f]) # output N x M x K
+                    ensemble_output, ensemble_sigma = self.forward_uncertainty(subsample, self.costnet[f]) # output N x M x K
                     ensemble_outputlist.append(ensemble_output.cpu().numpy())
+                    if (self.args.network == 3):
+                        ensemble_sigmalist.append(ensemble_sigma.cpu().numpy())
 
             assert len(ensemble_outputlist) > 0, 'length of the ensemble must be at least 1'
             output = np.sum(ensemble_outputlist, axis = 0)
@@ -444,10 +541,19 @@ class TrainCostmap(TorchFlow.TorchFlow):
             # uncertainty - will be measured by using standard deviation
             sd_list = np.square(ensemble_outputlist - output)       # sd_list is L x N x M x K
             sd = np.sum(sd_list, axis = 0)
-            sd = sd / (self.args.ensemble_length - 1)
-            sd = np.sqrt(sd)                                        # sd is N x M x K
-            sd = sd * 2                                             # 2-times factor for uncertainty values to fill the whole range of 0 - 1
+            sd = sd / (self.args.ensemble_length)                   # this is our epistemic uncertainty
+            sd = np.sqrt(sd)                                        # sd is N x M x K (depends on whether we want variance or standard deviation)
+            sd = sd * 2                                            # 2-times factor for uncertainty values to fill the whole range of 0 - 1
             # sd = sd * 4                                            # might add this because standard deviation is usually range / 4, and we want the spread of our sd values to be between 0 and 1 (since range of cost is between 0 and 1)
+
+            if (self.args.total_uncertainty):                       # this will output total uncertainty (epistemic uncertainty + aleatoric uncertainty) instead of just epistemic uncertainty
+                aleatoric = np.sum(ensemble_sigmalist, axis = 0)
+                aleatoric = aleatoric / self.args.ensemble_length
+                aleatoric = aleatoric.reshape(batchsize, subpatchsize, velnum)      # this is our aleatoric uncertainty
+
+                sd = sd.reshape(batchsize, subpatchsize, velnum)
+                sd = sd + aleatoric
+
             sd_outputlist.append(sd.reshape(batchsize, subpatchsize, velnum))
 
         costlist = np.concatenate(outputlist, axis=1) # N x M x K
@@ -470,7 +576,7 @@ class TrainCostmap(TorchFlow.TorchFlow):
         try:
             sample = next(self.testDataiter)
         except StopIteration:
-            return None, None, None, None 
+            return None, None, None, None, None 
             # self.testDataiter = iter(self.testDataloader)
             # sample = self.testDataiter.next()
 
@@ -481,6 +587,7 @@ class TrainCostmap(TorchFlow.TorchFlow):
         maps = torch.cat((rgbmap[0][0], heightmap[0][0]), dim=0) # 8 x H x W
 
         outputlist = []
+        sigma_outputlist = []
         vels = torch.tensor(self.test_vel_list, dtype=torch.float32).view(1,1,4)
         velnum = vels.shape[-1]
         for k in range(0, self.patchnum, maxpatch_size):
@@ -501,9 +608,19 @@ class TrainCostmap(TorchFlow.TorchFlow):
             subsample['vels'][:,:,:,0] = vels / 5.0 
 
             with torch.no_grad():
-                _, output = self.forward(subsample) # output N x M x K
+                if (self.args.network == 1 or self.args.network == 2):
+                    _, output = self.forward(subsample) # output N x M x K
+                elif (self.args.network == 3):
+                    _, output, sigma, loss_control = self.forward_aleatoric(subsample)
+                    sigma_outputlist.append(sigma.cpu().numpy().reshape(batchsize, subpatchsize, velnum))
             outputlist.append(output.cpu().numpy().reshape(batchsize, subpatchsize, velnum))    # outputlist L x N x M x K
+            
         costlist = np.concatenate(outputlist, axis=1) # N x M x K
+
+        uncertaintylist = None
+        if (self.args.network == 3):
+            uncertaintylist = np.concatenate(sigma_outputlist, axis=1)
+            uncertaintylist = uncertaintylist[0]        # uncertaintylist is M x K
             
         print("Test {}".format(self.test_count))
         visrgbmap = rgbmap[0][0].numpy()
@@ -511,7 +628,7 @@ class TrainCostmap(TorchFlow.TorchFlow):
         visfpv = sample[self.fpvimg][0][0].numpy()
         # vid.write(disp_color)
         sample = None
-        return costlist[0], visrgbmap, visheightmap, visfpv     # costlist is N x M x 4 or 1 x 441 x 4, visrgbmap is C x H x W or 3 x 600 x 600, visheightmap is C x H x W or 5 x 600 x 600, 
+        return costlist[0], visrgbmap, visheightmap, visfpv, uncertaintylist     # costlist is N x M x 4 or 1 x 441 x 4, visrgbmap is C x H x W or 3 x 600 x 600, visheightmap is C x H x W or 5 x 600 x 600, 
 
     def finalize(self):
         super(TrainCostmap, self).finalize()
@@ -520,7 +637,7 @@ class TrainCostmap(TorchFlow.TorchFlow):
 
         elif not self.args.test:
             self.logger.info('The average loss values:')
-            self.logger.info('%.4f \t %.4f ' % (self.AV['loss'].last_avg(100), self.AV['test_loss'].last_avg(100)))
+            self.logger.info('%.4f \t %.4f \t %.4f \t %.4f' % (self.AV['loss'].last_avg(100), self.AV['test_loss'].last_avg(100), self.AV['control_loss'].last_avg(100), self.AV['control_test_loss'].last_avg(100)))
 
 def visualize_output(outputlist, visrgbmap, visheightmap, visfpv, test_vel_list): 
     '''
@@ -572,7 +689,7 @@ def visualize_output(outputlist, visrgbmap, visheightmap, visfpv, test_vel_list)
     return visimg
 
 
-def visualize_uncertainty(outputlist, visrgbmap, visheightmap, visfpv, test_vel_list, uncertaintylist): 
+def visualize_uncertainty(outputlist, visrgbmap, visheightmap, visfpv, test_vel_list, uncertaintylist, args): 
     '''
     outputlist: ( H x W ) x 4 cost estimation
     visrgbmap: 3 x H x W 
@@ -595,7 +712,22 @@ def visualize_uncertainty(outputlist, visrgbmap, visheightmap, visfpv, test_vel_
 
     costvislist, uncertainty_vislist = [], []
     vellist = ['Vel='+str(k)+' m/s' for k in test_vel_list]
+    if (args.total_uncertainty):
+        text = 'Total Uncertainty'
+    elif (args.ensemble):
+        text = 'Model Uncertainty'
+    else:
+        text = 'Data Uncertainty'
+
+    # normalizing uncertainty data
     # import ipdb;ipdb.set_trace()
+    # min_scalar = []
+    # max_scalar = []
+    # range_scalar = []
+    # for l in range(4):
+    #     min_scalar.append(np.min(uncertaintylist[:,l]))
+    #     max_scalar.append(np.max(uncertaintylist[:,l]))
+    #     range_scalar.append(max_scalar[l] - min_scalar[l])
     for k in range(4): # hard code
         output = outputlist[:,k]
     # save the file for debug
@@ -613,6 +745,7 @@ def visualize_uncertainty(outputlist, visrgbmap, visheightmap, visfpv, test_vel_
 
         # visualizing uncertainty
         uncertainty = uncertaintylist[:,k]
+        # uncertainty = (uncertainty - min_scalar[k]) / range_scalar[k]   # normalization
         uncertaintynp = uncertainty.reshape(mapsize, mapsize)
         uncertainty_disp = np.clip((uncertaintynp*255),0,255).astype(np.uint8)
         uncertainty_disp = cv2.resize(uncertainty_disp, (133, 133), interpolation=cv2.INTER_LINEAR)
@@ -620,7 +753,10 @@ def visualize_uncertainty(outputlist, visrgbmap, visheightmap, visfpv, test_vel_
         uncertainty_disp_pad[33:166,33:166] = uncertainty_disp
         uncertainty_disp_color = cv2.applyColorMap(uncertainty_disp_pad, cv2.COLORMAP_JET)
         uncertainty_disp_color = cv2.flip(uncertainty_disp_color, -1)
-        uncertainty_disp_color = cv2.putText(uncertainty_disp_color, 'Uncertainty', (45,25), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0,210,245), thickness=1)
+        uncertainty_disp_color = cv2.putText(uncertainty_disp_color, text, (45,25), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0,210,245), thickness=1)
+        # constructing range value
+        # range_text = str(min_scalar[k]) + ' - ' + str(max_scalar[k])
+        # uncertainty_disp_color = cv2.putText(uncertainty_disp_color, range_text, (45,25), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0,210,245), thickness=1)
         uncertainty_vislist.append(uncertainty_disp_color)
 
     costvis = np.concatenate(
@@ -637,20 +773,29 @@ def visualize_uncertainty(outputlist, visrgbmap, visheightmap, visfpv, test_vel_
 if __name__ == '__main__':
     args = get_args()
     try:
+        # Generate random seeds
+        if (args.seed != -1):
+            random_seed = args.seed
+            torch.manual_seed(random_seed)
+            torch.cuda.manual_seed(random_seed)
+            torch.backends.cudnn.deterministic = True
+            torch.backends.cudnn.benchmark = False
+            np.random.seed(random_seed)
+
         # Instantiate an object for MyWF.
         trainCostmap = TrainCostmap(args.working_dir, args, prefix = args.exp_prefix, plotterType = 'Int')
         trainCostmap.initialize()
 
 
         # import ipdb;ipdb.set_trace()
-        if args.test_traj_uncertainty:
+        if args.test_traj_ensemble:
             outvidfile = args.ensemble_model_names[0].split('.pkl')[0] +'_'+ args.out_vid_file #'test_20220531_lowvel_0.mp4'
             fourcc = cv2.VideoWriter_fourcc(*'MP4V')
             fout=cv2.VideoWriter(outvidfile, fourcc, 10, (1200, 800))
             # total_output = []
             # total_uncertain = []
             while True:
-                outputlist, visrgbmap, visheightmap, visfpv, uncertaintylist = trainCostmap.test_traj_uncertainty()      # outputlist is M x 4 or 441 x 4, visrgbmap is C x H x W or 3 x 600 x 600, visheightmap is C x H x W or 5 x 600 x 600, visfpv is 1080 x 1440 x 3
+                outputlist, visrgbmap, visheightmap, visfpv, uncertaintylist = trainCostmap.test_traj_ensemble()      # outputlist is M x 4 or 441 x 4, visrgbmap is C x H x W or 3 x 600 x 600, visheightmap is C x H x W or 5 x 600 x 600, visfpv is 1080 x 1440 x 3
                 # import ipdb;ipdb.set_trace()
                 if outputlist is None:
                     break
@@ -658,7 +803,7 @@ if __name__ == '__main__':
                 # total_output.append(outputlist)
                 # total_uncertain.append(uncertaintylist)
                 
-                visimg = visualize_uncertainty(outputlist, visrgbmap, visheightmap, visfpv, trainCostmap.test_vel_list, uncertaintylist)
+                visimg = visualize_uncertainty(outputlist, visrgbmap, visheightmap, visfpv, trainCostmap.test_vel_list, uncertaintylist, args)
                 # cv2.imshow('img', visimg)
                 # cv2.waitKey(10)
                 fout.write(visimg)
@@ -675,18 +820,34 @@ if __name__ == '__main__':
             outvidfile = args.model_name.split('.pkl')[0] +'_'+ args.out_vid_file #'test_20220531_lowvel_0.mp4'
             fourcc = cv2.VideoWriter_fourcc(*'MP4V')
             fout=cv2.VideoWriter(outvidfile, fourcc, 10, (1200, 800))
+            # total_output = []
+            # total_uncertain = []
             while True:
-                outputlist, visrgbmap, visheightmap, visfpv = trainCostmap.test_traj()      # outputlist is M x 4 or 441 x 4, visrgbmap is C x H x W or 3 x 600 x 600, visheightmap is C x H x W or 5 x 600 x 600, visfpv is 1080 x 1440 x 3
+                outputlist, visrgbmap, visheightmap, visfpv, uncertaintylist = trainCostmap.test_traj()      # outputlist is M x 4 or 441 x 4, visrgbmap is C x H x W or 3 x 600 x 600, visheightmap is C x H x W or 5 x 600 x 600, visfpv is 1080 x 1440 x 3, uncertaintylist is M x 4
                 if outputlist is None:
                     break
+
+                if (uncertaintylist is not None):
+                    uncertaintylist = np.sqrt(uncertaintylist)         # we want to visualize standard deviation, not variance
+
+                # total_output.append(outputlist)
+                # total_uncertain.append(uncertaintylist)
+
                 # ipdb;ipdb.set_trace()
-                visimg = visualize_output(outputlist, visrgbmap, visheightmap, visfpv, trainCostmap.test_vel_list)
+                if (args.network == 1 or args.network == 2):
+                    visimg = visualize_output(outputlist, visrgbmap, visheightmap, visfpv, trainCostmap.test_vel_list)
+                elif (args.network == 3):
+                    visimg = visualize_uncertainty(outputlist, visrgbmap, visheightmap, visfpv, trainCostmap.test_vel_list, uncertaintylist, args)
                 # cv2.imshow('img', visimg)
                 # cv2.waitKey(10)
                 fout.write(visimg)
 
                 # if trainCostmap.test_count >= args.test_num:
                 #     break
+
+            # total_output = np.concatenate(total_output, axis=None)
+            # total_uncertain = np.concatenate(total_uncertain, axis=None)
+            # import ipdb;ipdb.set_trace()
             print("Test reaches the maximum test number (%d)." % (args.test_num))
             fout.release()
 

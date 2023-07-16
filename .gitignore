@@ -143,5 +143,8 @@ dmypy.json
 
 # All the shell scripts
 *.sh
+!visualize_ensemble.sh
 
+# Helper files that are not needed
 balance_data.py
+plot_data.py

@@ -456,7 +456,7 @@ def get_coverage_path(map_metadata, stride, crop_size):
     return np.array(pathlist)
 
 if __name__ == '__main__':
-    from .utils import add_text
+    from utils import add_text
     import time
     from torch.utils.data import DataLoader
     # framelistfile = '/home/amigo/workspace/ros_atv/src/rosbag_to_dataset/src/rosbag_to_dataset/post_processing/dataloader/tartandrive_train.txt'
@@ -467,24 +467,24 @@ if __name__ == '__main__':
     # datarootdir = '/cairo/arl_bag_files/SARA/2022_06_28_trajs'
     # framelistfile = '/home/amigo/workspace/pytorch/ss_costmap/data/20220628.txt'
 
-    datarootdir = '/cairo/arl_bag_files/SARA/2022_05_31_trajs'
-    framelistfile = '/home/amigo/workspace/pytorch/ss_costmap/data/rough_rider_high.txt'
+    # datarootdir = '/cairo/arl_bag_files/SARA/2022_05_31_trajs'
+    # framelistfile = '/home/amigo/workspace/pytorch/ss_costmap/data/rough_rider_high.txt'
 
-    framelistfile = 'data/rough_rider.txt'
-    datarootdir = '/cairo/arl_bag_files/SARA/2022_05_31_trajs'
+    # framelistfile = 'data/rough_rider.txt'
+    # datarootdir = '/cairo/arl_bag_files/SARA/2022_05_31_trajs'
 
-    framelistfile = 'data/local_test.txt'
-    datarootdir = '/cairo/arl_bag_files/SARA/test_loader/2022_traj'
+    # framelistfile = 'data/local_test.txt'
+    # datarootdir = '/cairo/arl_bag_files/SARA/test_loader/2022_traj'
 
-    framelistfile = 'data/arl_local.txt'
-    datarootdir = '/cairo/arl_bag_files/sara_traj'
+    framelistfile = 'data/combine_train_crop10.txt'
+    datarootdir = '/project/learningphysics'
 
     datatypes = "heightmap,rgbmap,odom,patches,cost,vels" #"img0,img1,imgc,disp0,heightmap,rgbmap,cmd,odom,imu"
     modalitylens = [1,1,10,10,10,10] # [10,10,10,10,10,10,10,10,100]
-    datatypes = "heightmap,rgbmap,odom,patches" #"img0,img1,imgc,disp0,heightmap,rgbmap,cmd,odom,imu"
-    modalitylens = [1,1,10,10] # [10,10,10,10,10,10,10,10,100]
-    batch = 1
-    workernum = 0
+    # datatypes = "heightmap,rgbmap,odom,patches" #"img0,img1,imgc,disp0,heightmap,rgbmap,cmd,odom,imu"
+    # modalitylens = [1,1,10,10] # [10,10,10,10,10,10,10,10,100]
+    batch = 5
+    workernum = 8
 
     map_height = 12.0
     map_width = 12.0
@@ -542,10 +542,10 @@ if __name__ == '__main__':
     while True:
         starttime = time.time()
         try:
-            sample = dataiter.next()
+            sample = next(dataiter)
         except StopIteration:
             dataiter = iter(dataloader)
-            sample = dataiter.next()
+            sample = next(dataiter)
 
         rgbmap = sample['rgbmap'][0][0].permute(1,2,0).numpy()
         rgbmap = np.clip((rgbmap * std + mean) * 255, 0 ,255).astype(np.uint8)

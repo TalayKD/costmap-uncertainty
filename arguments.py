@@ -117,8 +117,14 @@ def get_args():
     parser.add_argument('--ensemble-model-names', default = [''], nargs='*',
                         help='names of all the models to be loaded in the ensemble')
     
-    parser.add_argument('--test-traj-uncertainty', action='store_true', default=False,
-                        help='test trajectory with uncertainty estimation(default: False)')
+    parser.add_argument('--test-traj-ensemble', action='store_true', default=False,
+                        help='test trajectory with ensemble uncertainty estimation(default: False)')
+    
+    parser.add_argument('--total-uncertainty', action='store_true', default=False,
+                        help='outputs total uncertainty instead of just epistemic uncertainty (default: False)')
+    
+    parser.add_argument('--seed', type=int, default=-1,
+                        help='sets the seed for PyTorch and NumPy for reproducibility')
 
     args = parser.parse_args()
 

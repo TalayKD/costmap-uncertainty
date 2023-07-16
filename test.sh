@@ -28,7 +28,6 @@ python3 train_costmap_wf.py --exp-prefix test_ --batch-size 1 --test-batch-size 
 # Talay Use (For Stepping Through the Code)
 # python3 train_costmap_wf_test.py --batch-size 1 --test-batch-size 1 --worker-num 1 --test --test-traj --val-file arl_20220922_vegetation_low.txt --stride 3 --skip 0 --crop-num 2 --data-root /project/learningphysics/arl_20220922_traj --load-model --model-name 2_7_costnet_20000.pkl --network 2 --net-config 1
 
-
 # Talay Use (For Visualizing Model)
 python3 train_costmap_wf_uncertainty.py --exp-prefix test_ --batch-size 1 --test-batch-size 1 --worker-num 1 --test --test-traj --val-file arl_20220922_vegetation_low.txt --stride 6 --skip 0 --crop-num 2 --data-root /project/learningphysics/arl_20220922_traj --load-model --model-name t_7_costnet_5000.pkl --network 2 --net-config 0 --out-vid-file arl_vegetation_low.mp4
 

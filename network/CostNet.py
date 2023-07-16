@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from modules import BasicBlock, make_layer, Conv, Linear
+from .modules import BasicBlock, make_layer, Conv, Linear
 
 class CostResNet(nn.Module):
     def __init__(self, inputnum, outputnum, velinputlen=0):
